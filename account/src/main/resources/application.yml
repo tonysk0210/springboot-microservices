@@ -1,9 +1,45 @@
+# 伺服器設定
+server:
+  port: 8080  # 應用程式監聽的埠號
+
+# 日誌設定
+logging:
+  level:
+    org.hibernate.tool.schema: DEBUG
+    org.springframework.jdbc.datasource.init: DEBUG   # 查看 schema.sql 執行情況
+  pattern:
+    # 自訂 console 輸出格式：時間(綠) 等級(藍) [執行緒](紅) logger名稱(黃) - 訊息
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
+
 spring:
+  # 應用程式名稱（會用於服務註冊、日誌等）
   application:
     name: account
+
+  # 資料來源設定 (H2 記憶體模式：每次啟動皆為全新空 DB，關閉即消失，適合開發階段)
+  datasource:
+    url: jdbc:h2:mem:accountdb           # 記憶體模式，DB 名稱 accountdb；配合 sql.init 每次啟動由 schema.sql 重建表
+    driverClassName: org.h2.Driver       # H2 JDBC 驅動類別
+    username: sa                         # 預設使用者名稱
+    password: ''                         # 預設密碼為空
+
+  # H2 資料庫控制台設定
   h2:
     console:
-      enabled: true
-logging:
-  pattern:
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
+      enabled: true                      # 啟用 H2 Web Console，可透過 /h2-console 存取
+
+  # JPA / Hibernate 設定
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect  # 指定 Hibernate 使用 H2 方言
+    hibernate:
+      ddl-auto: validate                 # 啟動時自動根據 Entity 更新資料表結構 (create/update/validate/none)
+    show-sql: true                       # 在 console 印出 Hibernate 執行的 SQL 語句
+    properties:
+      hibernate:
+        format_sql: true                 # 是否格式化 SQL 輸出，預設 true
+
+  # SQL 初始化設定 (Spring Boot 啟動時自動執行 SQL 腳本)
+  sql:
+    init:
+      mode: embedded                                    # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
+      schema-locations: classpath:/sql/schema.sql       # DDL 腳本位置 (建立資料表結構)，位於 resources/sql/schema.sql

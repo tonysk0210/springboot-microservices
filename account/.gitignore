@@ -31,3 +31,11 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### H2 Database ###
+h2db/
+*.mv.db
+*.trace.db
+*.lock.db
+*.tmp.db
+
