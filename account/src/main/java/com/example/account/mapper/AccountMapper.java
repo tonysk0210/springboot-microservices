@@ -5,7 +5,7 @@ import com.example.account.entity.Account;
 
 public class AccountMapper {
 
-    public static AccountDto mapToAccountsDto(Account account, AccountDto accountDto) {
+    public static AccountDto mapToAccountDto(Account account, AccountDto accountDto) {
         accountDto.setAccountNumber(account.getAccountNumber());
         accountDto.setAccountType(account.getAccountType());
         accountDto.setBranchAddress(account.getBranchAddress());
