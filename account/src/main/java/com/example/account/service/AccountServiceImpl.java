@@ -1,9 +1,12 @@
 package com.example.account.service;
 
+import com.example.account.dto.AccountDto;
 import com.example.account.dto.CustomerDto;
 import com.example.account.entity.Account;
 import com.example.account.entity.Customer;
 import com.example.account.exception.CustomerAlreadyExistsException;
+import com.example.account.exception.ResourceNotFoundException;
+import com.example.account.mapper.AccountMapper;
 import com.example.account.mapper.CustomerMapper;
 import com.example.account.repository.AccountRepo;
 import com.example.account.repository.CustomerRepo;
@@ -36,10 +39,32 @@ public class AccountServiceImpl implements IAccountService {
         accountRepo.save(createNewAccount(savedCustomer));
     }
 
+    @Override
+    public CustomerDto fetchAccount(String mobileNumber) {
+        // 1. 根據手機號碼查找客戶
+        Customer customer = customerRepo.findByMobileNumber(mobileNumber)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Customer", "mobileNumber", mobileNumber)
+                );
+
+        // 2. 根據客戶 ID 查找帳戶
+        Account accounts = accountRepo.findByCustomerId(customer.getCustomerId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Account", "customerId", customer.getCustomerId().toString())
+                );
+
+        // 3. 將客戶物件轉換成 CustomerDto
+        CustomerDto customerDto = CustomerMapper.mapToCustomerDto(customer, new CustomerDto());
+        // 4. 將帳戶物件轉換成 AccountDto 並設定到 CustomerDto 中
+        customerDto.setAccountDto(AccountMapper.mapToAccountDto(accounts, new AccountDto()));
+        // 5. 回傳 CustomerDto
+        return customerDto;
+    }
+
+
     // ///////////////
     // helper method
     // ///////////////
-
     private Account createNewAccount(Customer customer) {
         Account newAccount = new Account();
         newAccount.setCustomerId(customer.getCustomerId());

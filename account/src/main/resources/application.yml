@@ -16,9 +16,9 @@ spring:
   application:
     name: account
 
-  # 資料來源設定 (H2 記憶體模式：每次啟動皆為全新空 DB，關閉即消失，適合開發階段)
+  # 資料來源設定 (H2 檔案模式 + AUTO_SERVER：資料會保留到磁碟，且允許多程序連線)
   datasource:
-    url: jdbc:h2:mem:accountdb           # 記憶體模式，DB 名稱 accountdb；配合 sql.init 每次啟動由 schema.sql 重建表
+    url: jdbc:h2:file:./account/h2db/accountdb;AUTO_SERVER=true        # 檔案模式；路徑相對於 JVM 工作目錄；AUTO_SERVER 允許 Spring Boot 與 IntelliJ Database 同時連線
     driverClassName: org.h2.Driver       # H2 JDBC 驅動類別
     username: sa                         # 預設使用者名稱
     password: ''                         # 預設密碼為空
@@ -41,5 +41,5 @@ spring:
   # SQL 初始化設定 (Spring Boot 啟動時自動執行 SQL 腳本)
   sql:
     init:
-      mode: embedded                                    # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
+      mode: always                                    # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
       schema-locations: classpath:/sql/schema.sql       # DDL 腳本位置 (建立資料表結構)，位於 resources/sql/schema.sql

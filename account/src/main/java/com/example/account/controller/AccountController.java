@@ -2,23 +2,41 @@ package com.example.account.controller;
 
 import com.example.account.dto.CustomerDto;
 import com.example.account.dto.ResponseDto;
+import com.example.account.service.IAccountService;
+import jakarta.validation.constraints.Pattern;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api")
 public class AccountController {
 
+    private final IAccountService accountService;
+
     @PostMapping("/create-account")
     public ResponseEntity<ResponseDto> createAccount(@RequestBody CustomerDto customerDto) {
+
+        // 1. 建立帳號
+        accountService.createAccount(customerDto);
+
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(new ResponseDto(
                         HttpStatus.CREATED.toString(),
                         "帳號建立成功"));
+    }
+
+    @GetMapping("/fetch-customer")
+    public ResponseEntity<CustomerDto> fetchAccountDetails(@RequestParam
+                                                           @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
+                                                           String mobileNumber) {
+        // 1. 取得客戶資料
+        CustomerDto customerDto = accountService.fetchAccount(mobileNumber);
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(customerDto);
     }
 }
