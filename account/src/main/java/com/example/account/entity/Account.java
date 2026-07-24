@@ -33,6 +33,4 @@ public class Account extends BaseEntity {
     @NotNull
     @Column(name = "BRANCH_ADDRESS", nullable = false, length = 200)
     private String branchAddress;
-
-
 }

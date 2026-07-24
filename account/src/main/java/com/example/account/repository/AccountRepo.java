@@ -10,4 +10,6 @@ import java.util.Optional;
 public interface AccountRepo extends JpaRepository<Account, Integer> {
 
     Optional<Account> findByCustomerId(Integer customerId);
+
+    void deleteByCustomerId(Integer customerId);
 }

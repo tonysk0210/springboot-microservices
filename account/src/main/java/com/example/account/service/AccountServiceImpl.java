@@ -12,16 +12,19 @@ import com.example.account.repository.AccountRepo;
 import com.example.account.repository.CustomerRepo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)                                       // ← 預設 readOnly，讀取方法自動繼承
 public class AccountServiceImpl implements IAccountService {
 
     private final AccountRepo accountRepo;
     private final CustomerRepo customerRepo;
 
+    @Transactional
     @Override
     public void createAccount(CustomerDto accountDto) {
         // 1. 將 CustomerDto 尋換成 Customer 物件
@@ -39,6 +42,7 @@ public class AccountServiceImpl implements IAccountService {
         accountRepo.save(createNewAccount(savedCustomer));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public CustomerDto fetchAccount(String mobileNumber) {
         // 1. 根據手機號碼查找客戶
@@ -59,6 +63,52 @@ public class AccountServiceImpl implements IAccountService {
         customerDto.setAccountDto(AccountMapper.mapToAccountDto(accounts, new AccountDto()));
         // 5. 回傳 CustomerDto
         return customerDto;
+    }
+
+    @Transactional
+    @Override
+    public boolean updateAccount(CustomerDto customerDto) {
+        boolean isUpdated = false;
+        // 1. 取得帳戶 DTO
+        AccountDto accountsDto = customerDto.getAccountDto();
+        // 2. 檢查帳戶 DTO 是否為空
+        if (accountsDto != null) {
+            // 3. 根據帳戶編號查找帳戶
+            Account account = accountRepo.findById(accountsDto.getAccountNumber())
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Account", "AccountNumber", accountsDto.getAccountNumber().toString())
+                    );
+            // 4. 將帳戶 DTO 轉換成帳戶物件並更新帳戶資料
+            AccountMapper.mapToAccount(accountsDto, account);
+            account = accountRepo.save(account);
+
+            // 5. 根據客戶 ID 查找客戶
+            Integer customerId = account.getCustomerId();
+            Customer customer = customerRepo.findById(customerId)
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Customer", "CustomerID", customerId.toString())
+                    );
+
+            // 6. 將客戶 DTO 轉換成客戶物件並更新客戶資料
+            CustomerMapper.mapToCustomer(customerDto, customer);
+            customerRepo.save(customer);
+            isUpdated = true;
+        }
+        return isUpdated;
+    }
+
+    @Transactional
+    @Override
+    public boolean deleteAccount(String mobileNumber) {
+        // 1. 根據手機號碼查找客戶
+        Customer customer = customerRepo.findByMobileNumber(mobileNumber)
+                .orElseThrow(
+                        () -> new ResourceNotFoundException("Customer", "mobileNumber", mobileNumber)
+                );
+        // 2. 刪除客戶的帳戶 & 客戶資料
+        accountRepo.deleteByCustomerId(customer.getCustomerId());
+        customerRepo.deleteById(customer.getCustomerId());
+        return true;
     }
 
 
