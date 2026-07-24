@@ -1,6 +1,7 @@
 package com.example.account.exception;
 
 import com.example.account.dto.ErrorResponseDto;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,54 +12,78 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
+/**
+ * 全域例外處理器：攔截 Controller 拋出的例外，統一轉成 JSON 錯誤回應。
+ */
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // 處理 @RequestParam / @PathVariable 上的驗證失敗（如 @Pattern 不通過）
+
+    /**
+     * 400：Controller 參數驗證失敗（如 @Pattern、@Size 不通過）
+     */
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ErrorResponseDto> handleValidationException(HandlerMethodValidationException exception,
                                                                       WebRequest webRequest) {
-        // 1. 取得驗證失敗的訊息
         String message = exception.getAllErrors().stream()
                 .map(err -> err.getDefaultMessage())
                 .collect(Collectors.joining("; "));
 
-        // 2. 建立 ErrorResponseDto 物件，包含路徑、狀態碼、錯誤訊息和時間
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.BAD_REQUEST,
                 message,
                 LocalDateTime.now()
         );
-        // 3. 回傳 ResponseEntity 物件，包含路徑、狀態碼和錯誤訊息
         return new ResponseEntity<>(errorResponseDTO, HttpStatus.BAD_REQUEST);
     }
 
+    /**
+     * 400：業務規則違反 — 手機號碼已註冊
+     */
     @ExceptionHandler(CustomerAlreadyExistsException.class)
     public ResponseEntity<ErrorResponseDto> handleCustomerAlreadyExistsException(CustomerAlreadyExistsException exception,
                                                                                  WebRequest webRequest) {
-        // 1. 建立 ErrorResponseDto 物件，包含路徑、狀態碼、錯誤訊息和時間
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.BAD_REQUEST,
                 exception.getMessage(),
                 LocalDateTime.now()
         );
-        // 2. 回傳 ResponseEntity 物件，包含路徑、狀態碼和錯誤訊息
         return new ResponseEntity<>(errorResponseDTO, HttpStatus.BAD_REQUEST);
     }
 
+    /**
+     * 404：資料庫查無資源
+     */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponseDto> handleResourceNotFoundException(ResourceNotFoundException exception,
                                                                             WebRequest webRequest) {
-        // 1. 建立 ErrorResponseDto 物件，包含路徑、狀態碼、錯誤訊息和時間
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.NOT_FOUND,
                 exception.getMessage(),
                 LocalDateTime.now()
         );
-        // 2. 回傳 ResponseEntity 物件，包含路徑、狀態碼和錯誤訊息
         return new ResponseEntity<>(errorResponseDTO, HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * 500：catch-all；log 完整例外，只回通用訊息給前端避免洩漏內部細節
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponseDto> handleGlobalException(Exception exception,
+                                                                  WebRequest webRequest) {
+        log.error("未處理 exception at [{}]: {}",
+                webRequest.getDescription(false), exception.getMessage(), exception);
+
+        ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
+                webRequest.getDescription(false),
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "系統發生錯誤，請稍後再試",
+                LocalDateTime.now()
+        );
+        return new ResponseEntity<>(errorResponseDTO, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx ctx7@latest *)"
+    ]
+  }
+}
