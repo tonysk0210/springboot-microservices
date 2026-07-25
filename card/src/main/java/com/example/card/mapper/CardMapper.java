@@ -3,7 +3,7 @@ package com.example.card.mapper;
 import com.example.card.dto.CardDto;
 import com.example.card.entity.Card;
 
-public class CardsMapper {
+public class CardMapper {
 
     public static CardDto mapToCardDto(Card card, CardDto cardDto) {
         cardDto.setMobileNumber(card.getMobileNumber());

@@ -4,7 +4,7 @@ import com.example.card.dto.CardDto;
 import com.example.card.entity.Card;
 import com.example.card.exception.CardAlreadyExistsException;
 import com.example.card.exception.ResourceNotFoundException;
-import com.example.card.mapper.CardsMapper;
+import com.example.card.mapper.CardMapper;
 import com.example.card.repository.CardRepo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -36,7 +36,7 @@ public class CardServiceImpl implements ICardService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Card", "mobileNumber", mobileNumber));
         // 2. 返回卡片資訊
-        return CardsMapper.mapToCardDto(card, new CardDto());
+        return CardMapper.mapToCardDto(card, new CardDto());
     }
 
     @Override
@@ -45,7 +45,7 @@ public class CardServiceImpl implements ICardService {
         Card card = cardRepo.findByCardNumber(cardDto.getCardNumber())
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Card", "CardNumber", cardDto.getCardNumber()));
-        CardsMapper.mapToCard(cardDto, card);
+        CardMapper.mapToCard(cardDto, card);
 
         // 2. 更新卡片資訊
         cardRepo.save(card);
