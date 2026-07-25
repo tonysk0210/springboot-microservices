@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx ctx7@latest *)"
+      "Bash(npx ctx7@latest *)",
+      "Bash(claude *)",
+      "Bash(git check-ignore *)",
+      "Bash(git status *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(echo \"\\(exit=$? — 0 表示被忽略，1 表示可追蹤\\)\")",
+      "Bash(git add *)",
+      "Read(//tmp/tmp.wuowCJHvMK/org/springframework/web/servlet/mvc/method/annotation/**)"
     ]
   }
 }

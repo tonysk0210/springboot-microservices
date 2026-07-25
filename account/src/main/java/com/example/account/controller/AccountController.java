@@ -18,7 +18,7 @@ public class AccountController {
     private final IAccountService accountService;
 
     @PostMapping("/create-account")
-    public ResponseEntity<ResponseDto> createAccount(@RequestBody CustomerDto customerDto) {
+    public ResponseEntity<ResponseDto> createAccount(@RequestBody @Valid CustomerDto customerDto) {
 
         // 1. 建立帳號
         accountService.createAccount(customerDto);
@@ -42,7 +42,7 @@ public class AccountController {
     }
 
     @PutMapping("/update-account")
-    public ResponseEntity<ResponseDto> updateAccountDetails(@Valid @RequestBody CustomerDto customerDto) {
+    public ResponseEntity<ResponseDto> updateAccountDetails(@RequestBody @Valid CustomerDto customerDto) {
 
         // 1. 更新帳號資料
         boolean isUpdated = accountService.updateAccount(customerDto);

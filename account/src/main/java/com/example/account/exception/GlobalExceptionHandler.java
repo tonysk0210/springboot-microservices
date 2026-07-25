@@ -26,16 +26,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HandlerMethodValidationException.class)
     public ResponseEntity<ErrorResponseDto> handleValidationException(HandlerMethodValidationException exception,
                                                                       WebRequest webRequest) {
+        // 1. 取得驗證失敗的訊息
         String message = exception.getAllErrors().stream()
                 .map(err -> err.getDefaultMessage())
                 .collect(Collectors.joining("; "));
 
+        // 2. 建立 ErrorResponseDto 物件，包含路徑、狀態碼、錯誤訊息和時間
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.BAD_REQUEST,
                 message,
                 LocalDateTime.now()
         );
+        // 3. 回傳 ResponseEntity 物件，包含路徑、狀態碼和錯誤訊息
         return new ResponseEntity<>(errorResponseDTO, HttpStatus.BAD_REQUEST);
     }
 
