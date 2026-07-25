@@ -68,13 +68,26 @@ public class CardServiceImpl implements ICardService {
     // ///////////////
     private Card createNewCard(String mobileNumber) {
         Card newCard = new Card();
-        int randomCardNumber = 1_000_000_000 + new Random().nextInt(900_000_000);
-        newCard.setCardNumber(Integer.toString(randomCardNumber));
+        newCard.setCardNumber(randomCardNumber());
         newCard.setMobileNumber(mobileNumber);
         newCard.setCardType("Credit Card");
         newCard.setTotalLimit(100_000);
         newCard.setAmountUsed(0);
         newCard.setAvailableAmount(100_000);
         return newCard;
+    }
+
+    /**
+     * 逐位產生 12 位數卡號，需與 CardDto.cardNumber 的 @Pattern 一致。
+     * 卡號欄位型別是 String，所以直接組字串即可，不必經過整數運算（int 也放不下 12 位數）。
+     */
+    private String randomCardNumber() {
+        Random random = new Random();
+        StringBuilder cardNumber = new StringBuilder(12);
+        cardNumber.append(1 + random.nextInt(9));            // 首位取 1-9，避免開頭是 0
+        for (int i = 1; i < 12; i++) {
+            cardNumber.append(random.nextInt(10));
+        }
+        return cardNumber.toString();
     }
 }

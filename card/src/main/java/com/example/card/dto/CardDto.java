@@ -13,9 +13,9 @@ public class CardDto {
     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
     private String mobileNumber;
 
-    @Schema(description = "10 位數字的卡號，建立卡片時自動產生", example = "1123456789")
+    @Schema(description = "12 位數字的卡號，建立卡片時自動產生", example = "123456789012")
     @NotBlank(message = "卡號不得為空值或空白")
-    @Pattern(regexp = "(^$|[0-9]{10})", message = "卡號必須為 10 位數字")
+    @Pattern(regexp = "(^$|[0-9]{12})", message = "卡號必須為 12 位數字")
     private String cardNumber;
 
     @Schema(description = "卡片類型", example = "Credit Card")
