@@ -118,7 +118,7 @@ public class AccountServiceImpl implements IAccountService {
     private Account createNewAccount(Customer customer) {
         Account newAccount = new Account();
         newAccount.setCustomerId(customer.getCustomerId());
-        int randomAccNumber = 1000000000 + new Random().nextInt(9000000);
+        int randomAccNumber = 1_000_000_000 + new Random().nextInt(9_000_000);
         newAccount.setAccountNumber(randomAccNumber);
         newAccount.setAccountType("SAVINGS");
         newAccount.setBranchAddress("123 Main St, New York, USA");

@@ -41,5 +41,5 @@ spring:
   # SQL 初始化設定 (Spring Boot 啟動時自動執行 SQL 腳本)
   sql:
     init:
-      mode: always                                    # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
+      mode: always                                      # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
       schema-locations: classpath:/sql/schema.sql       # DDL 腳本位置 (建立資料表結構)，位於 resources/sql/schema.sql
