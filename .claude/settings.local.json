@@ -8,7 +8,9 @@
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"\\(exit=$? — 0 表示被忽略，1 表示可追蹤\\)\")",
       "Bash(git add *)",
-      "Read(//tmp/tmp.wuowCJHvMK/org/springframework/web/servlet/mvc/method/annotation/**)"
+      "Read(//tmp/tmp.wuowCJHvMK/org/springframework/web/servlet/mvc/method/annotation/**)",
+      "Bash(./mvnw -B -q compile)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }

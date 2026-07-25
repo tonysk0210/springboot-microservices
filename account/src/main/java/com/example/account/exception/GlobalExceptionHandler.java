@@ -1,45 +1,84 @@
 package com.example.account.exception;
 
 import com.example.account.dto.ErrorResponseDto;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 /**
- * 全域例外處理器：攔截 Controller 拋出的例外，統一轉成 JSON 錯誤回應。
+ * 全域例外處理器：把例外統一轉成 ErrorResponseDto JSON 回應。
+ *
+ * <p>繼承 ResponseEntityExceptionHandler 以接管 Spring MVC 內建的 20 種例外（405、415、400、404…），
+ * 它們都會流經 handleExceptionInternal。要客製其中一種請用 @Override，不可用 @ExceptionHandler（會啟動失敗）。
  */
 @Slf4j
 @RestControllerAdvice
-public class GlobalExceptionHandler {
-
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
-     * 400：Controller 參數驗證失敗（如 @Pattern、@Size 不通過）
+     * 父類 20 種內建例外的共同出口：統一改成 ErrorResponseDto 格式
      */
-    @ExceptionHandler(HandlerMethodValidationException.class)
-    public ResponseEntity<ErrorResponseDto> handleValidationException(HandlerMethodValidationException exception,
-                                                                      WebRequest webRequest) {
-        // 1. 取得驗證失敗的訊息
-        String message = exception.getAllErrors().stream()
-                .map(err -> err.getDefaultMessage())
-                .collect(Collectors.joining("; "));
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(Exception exception,
+                                                             Object body,
+                                                             HttpHeaders headers,
+                                                             HttpStatusCode status,
+                                                             WebRequest webRequest) {
 
-        // 2. 建立 ErrorResponseDto 物件，包含路徑、狀態碼、錯誤訊息和時間
+        // 1. 保留父類的保護：回應已送出就不要再寫，否則會拋 IllegalStateException
+        if (webRequest instanceof ServletWebRequest servletWebRequest) {
+            // 取得 HttpServletResponse 以檢查回應是否已送出
+            HttpServletResponse response = servletWebRequest.getResponse();
+            if (response != null && response.isCommitted()) {
+                log.warn("回應已送出，忽略此例外: {}", exception.toString());
+                return null;
+            }
+        }
+
+        // 2. 組裝回應訊息
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
-                HttpStatus.BAD_REQUEST,
-                message,
+                HttpStatus.valueOf(status.value()),
+                extractMessage(exception),
                 LocalDateTime.now()
         );
-        // 3. 回傳 ResponseEntity 物件，包含路徑、狀態碼和錯誤訊息
-        return new ResponseEntity<>(errorResponseDTO, HttpStatus.BAD_REQUEST);
+        return new ResponseEntity<>(errorResponseDTO, headers, status);
+    }
+
+    /**
+     * 驗證類例外的 getMessage() 太冗長或只有固定字串，改抽出各欄位的 defaultMessage
+     */
+    private String extractMessage(Exception exception) {
+        // @Valid @RequestBody 驗證失敗
+        if (exception instanceof MethodArgumentNotValidException ex) {
+            return ex.getBindingResult().getFieldErrors().stream()
+                    .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
+                    .collect(Collectors.joining("; "));
+        }
+        // @RequestParam / @PathVariable 上的驗證註解未通過
+        if (exception instanceof HandlerMethodValidationException ex) {
+            return ex.getParameterValidationResults().stream()
+                    .flatMap(validationResult -> {
+                        String fieldName = validationResult.getMethodParameter().getParameterName();
+                        return validationResult.getResolvableErrors().stream()
+                                .map(error -> fieldName + ": " + error.getDefaultMessage());
+                    })
+                    .collect(Collectors.joining("; "));
+        }
+        return exception.getMessage();
     }
 
     /**
@@ -73,7 +112,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 500：catch-all；log 完整例外，只回通用訊息給前端避免洩漏內部細節
+     * 500：catch-all；log 完整例外，只回通用訊息避免洩漏內部細節
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleGlobalException(Exception exception,
