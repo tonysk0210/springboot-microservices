@@ -10,7 +10,23 @@
       "Bash(git add *)",
       "Read(//tmp/tmp.wuowCJHvMK/org/springframework/web/servlet/mvc/method/annotation/**)",
       "Bash(./mvnw -B -q compile)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(rm -rf /tmp/sdc)",
+      "Bash(mkdir -p /tmp/sdc)",
+      "Read(//tmp/**)",
+      "Bash(unzip -o -q ~/.m2/repository/org/springframework/data/spring-data-commons/4.1.0/spring-data-commons-4.1.0-sources.jar \"org/springframework/data/auditing/config/*\")",
+      "Read(//c/Users/tony.shangkuan/.m2/repository/org/springdoc/**)",
+      "Read(//c/Users/tony.shangkuan/.m2/repository/org/springdoc/springdoc-openapi-starter-webmvc-ui/**)",
+      "Bash(curl -s -m 20 \"https://search.maven.org/solrsearch/select?q=g:org.springdoc+AND+a:springdoc-openapi-starter-webmvc-ui&core=gav&rows=20&wt=json\")",
+      "Bash(curl -s -m 25 \"https://repo1.maven.org/maven2/org/springdoc/springdoc-openapi-starter-webmvc-ui/maven-metadata.xml\")",
+      "Bash(curl -s -m 25 \"https://repo1.maven.org/maven2/org/springdoc/springdoc-openapi-starter-webmvc-ui/3.0.3/springdoc-openapi-starter-webmvc-ui-3.0.3.pom\")",
+      "Bash(curl -s -m 25 \"https://repo1.maven.org/maven2/org/springdoc/springdoc-openapi/3.0.3/springdoc-openapi-3.0.3.pom\")",
+      "Bash(curl *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(python -c \"import json,sys; d=json.load\\(open\\('/tmp/apidocs2.json'\\)\\); print\\(json.dumps\\(d['info'],indent=2,ensure_ascii=False\\)\\); print\\('externalDocs:', d.get\\('externalDocs','\\(無\\)'\\)\\); print\\('API 數量:', len\\(d['paths']\\)\\)\")",
+      "Bash(grep -oE '\"tags\":\\\\[\\\\{\"name\":\"[^\"]*\",\"description\":\"[^\"]*\"\\\\}\\\\]' /tmp/apidocs3.json)",
+      "Bash(python -)"
     ]
   }
 }
