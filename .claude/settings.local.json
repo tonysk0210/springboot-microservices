@@ -26,7 +26,10 @@
       "PowerShell(Stop-Process *)",
       "Bash(python -c \"import json,sys; d=json.load\\(open\\('/tmp/apidocs2.json'\\)\\); print\\(json.dumps\\(d['info'],indent=2,ensure_ascii=False\\)\\); print\\('externalDocs:', d.get\\('externalDocs','\\(無\\)'\\)\\); print\\('API 數量:', len\\(d['paths']\\)\\)\")",
       "Bash(grep -oE '\"tags\":\\\\[\\\\{\"name\":\"[^\"]*\",\"description\":\"[^\"]*\"\\\\}\\\\]' /tmp/apidocs3.json)",
-      "Bash(python -)"
+      "Bash(python -)",
+      "Bash(echo \"COMPILE EXIT=$?\")",
+      "Bash(./mvnw -B compile)",
+      "Bash(./mvnw -B spring-boot:run -Dspring-boot.run.arguments=\"--server.port=8091 --spring.datasource.url=jdbc:h2:mem:loanverify3\")"
     ]
   }
 }

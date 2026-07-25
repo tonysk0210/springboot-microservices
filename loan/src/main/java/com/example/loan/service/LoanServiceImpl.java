@@ -7,17 +7,17 @@ import com.example.loan.exception.LoanAlreadyExistsException;
 import com.example.loan.exception.ResourceNotFoundException;
 import com.example.loan.mapper.LoanMapper;
 import com.example.loan.repository.LoanRepo;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 import java.util.Random;
 
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class LoanServiceImpl implements ILoanService {
 
-    private LoanRepo loanRepo;
+    private final LoanRepo loanRepo;
 
     @Override
     public void createLoan(String mobileNumber) {
@@ -73,10 +73,11 @@ public class LoanServiceImpl implements ILoanService {
     // ///////////////
     private Loan createNewLoan(String mobileNumber) {
         Loan newLoan = new Loan();
+        // 產生 10 位數貸款編號，需與 LoanDto.loanNumber 的 @Pattern 一致
         int randomLoanNumber = 1_000_000_000 + new Random().nextInt(900_000_000);
         newLoan.setLoanNumber(Integer.toString(randomLoanNumber));
         newLoan.setMobileNumber(mobileNumber);
-        newLoan.setLoanType("Home Loan");
+        newLoan.setLoanType("HOME LOAN");
         newLoan.setTotalLoan(100_000);
         newLoan.setAmountPaid(0);
         newLoan.setOutstandingAmount(100_000);

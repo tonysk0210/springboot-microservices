@@ -48,11 +48,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             }
         }
 
-        // 2. 組裝回應訊息
+        String message = extractMessage(exception);
+
+        // 2. 分級記錄：4xx 是客戶端送錯，用 warn 不印堆疊；5xx 是系統問題，用 error 並帶完整堆疊
+        if (status.is5xxServerError()) {
+            log.error("MVC 例外 [{}] at [{}]: {}",
+                    status, webRequest.getDescription(false), message, exception);
+        } else {
+            log.warn("MVC 例外 [{}] at [{}]: {}",
+                    status, webRequest.getDescription(false), message);
+        }
+
+        // 3. 組裝回應訊息
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.valueOf(status.value()),
-                extractMessage(exception),
+                message,
                 LocalDateTime.now()
         );
         return new ResponseEntity<>(errorResponseDTO, headers, status);
@@ -87,6 +98,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(CustomerAlreadyExistsException.class)
     public ResponseEntity<ErrorResponseDto> handleCustomerAlreadyExistsException(CustomerAlreadyExistsException exception,
                                                                                  WebRequest webRequest) {
+        // 預期內的業務結果，記 warn 不印堆疊
+        log.warn("業務規則違反 at [{}]: {}", webRequest.getDescription(false), exception.getMessage());
+
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.BAD_REQUEST,
@@ -102,6 +116,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponseDto> handleResourceNotFoundException(ResourceNotFoundException exception,
                                                                             WebRequest webRequest) {
+        // 預期內的業務結果，記 warn 不印堆疊
+        log.warn("查無資源 at [{}]: {}", webRequest.getDescription(false), exception.getMessage());
+
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
                 webRequest.getDescription(false),
                 HttpStatus.NOT_FOUND,
