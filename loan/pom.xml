@@ -101,6 +101,79 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!--
+                        ===================================================================
+                         用 Buildpacks 建 container image 的設定
+                        ===================================================================
+
+                        ⚠ 這一段「只」影響 mvn spring-boot:build-image，與 Dockerfile 無關。
+                          docker build 走的是 Dockerfile，完全不會讀 pom.xml。
+                          兩者是兩套獨立的建置方式：
+                            Buildpacks  → 不必寫 Dockerfile，自動決定基底 image、分層、
+                                          非 root 使用者、JVM 記憶體計算（loan 用這個方式）
+                            Dockerfile  → 自己掌控每個細節（account 用這個方式）
+
+                        ===================================================================
+                         <name> image 名稱
+                        ===================================================================
+                        兩個 Maven 變數會自動展開，升版時只要改上方的 <version> 一處：
+                            ${project.artifactId} → loan
+                            ${project.version}    → 0.0.1-SNAPSHOT
+                            結果：anthonysk/loan:0.0.1-SNAPSHOT
+
+                        anthonysk 是 Docker Hub 的命名空間，必須是真實帳號才能 docker push。
+                        只在本機跑的話名稱可以隨意，不影響功能。
+
+                        ===================================================================
+                         <env> 兩種前綴意義完全不同
+                        ===================================================================
+                        BP_*   建置期設定，告訴 buildpack「怎麼建」，不會進入容器環境
+                               例：<BP_JVM_VERSION>25</BP_JVM_VERSION>
+                        BPE_*  執行期環境變數，等同 Dockerfile 的 ENV
+                               BPE_DEFAULT_XXX 是「預設值」，可被 docker run 的 e 參數覆蓋
+
+                        這裡把資料庫預設成記憶體模式，語意明確表示「容器內資料不持久」，
+                        避免資料悄悄寫進 /home/cnb/h2db/ 然後隨容器重建消失。
+                        （application.yaml 的預設是 jdbc:h2:file:~/h2db/loandb）
+
+                        ⚠ docker image inspect 的 Config.Env 欄位「看不到」BPE_* 設定！
+                          因為 Buildpacks 是把它寫成 /layers/ 裡的啟動腳本，由 CNB launcher
+                          在容器啟動時才載入，不在 image 的靜態 metadata 裡。
+                          正確驗證方式是跑起來看 log：
+                              docker logs loan | Select-String "jdbc:h2"
+                              → 應顯示 url=jdbc:h2:mem:loandb
+
+                        ===================================================================
+                         操作指令
+                        ===================================================================
+                        建 image（需要 Docker 在執行中；第一次會下載約 1~2 GB 的 builder）：
+                            cd D:\Fork\github\springboot-microservices\loan
+                            .\mvnw spring-boot:build-image
+
+                        跑起來（加 d 參數背景執行、name 參數命名為 loan）：
+                            docker run -d (name=loan) -p 8090:8090 anthonysk/loan:0.0.1-SNAPSHOT
+
+                        ⚠ port 映射是 8090:8090，不是 8090:8080！
+                          因為 loan 的 server.port 設定是 8090，容器內 App 聽的就是 8090。
+                          寫成 8090:8080 的話容器會正常啟動，但永遠連不上，且沒有錯誤訊息。
+
+                        驗證：
+                            curl http://localhost:8090/actuator/health
+                            → {"groups":["liveness","readiness"],"status":"UP"}
+                            瀏覽器：http://localhost:8090/swagger-ui/index.html
+
+                        收工：
+                            docker rm -f loan
+
+                        ⚠ Paketo 的 run image 是 distroless 風格，「沒有 shell」，
+                          所以 docker exec loan sh 會失敗，除錯只能靠 docker logs。
+                    -->
+                    <image>
+                        <name>anthonysk/${project.artifactId}:${project.version}</name>
+                        <env>
+                            <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
+                        </env>
+                    </image>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
