@@ -22,7 +22,7 @@ replay_pid*
 ._*
 
 # Custom folder icons
-Icon
+Icon
 
 # Volume root files
 .DocumentRevisions-V100
@@ -45,6 +45,10 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+### Claude Code
+# 本機個人設定（工具權限等），不應共用
+.claude/settings.local.json
 
 ### JetBrains
 # JetBrains IDE directory
