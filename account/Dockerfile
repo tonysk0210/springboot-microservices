@@ -143,7 +143,7 @@ COPY --from=builder --chown=app:app /build/extracted/application/ ./
 # 「在盒子上貼張紙條：這個服務用 8080 號門」
 #
 # ⚠ 它「只是紙條，不會真的開門」。要能從外面連進來，啟動時得自己指定：
-#     docker run -p 18080:8080 ...
+#     docker run -p 8080:8080 ...
 #                   ↑外面  ↑裡面
 EXPOSE 8080
 
@@ -207,4 +207,49 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 #  🔑 什麼情況連依賴下載都會重跑？
 #     只有 pom.xml 改動時（新增依賴、升級版本）。那次建置會明顯變慢，
 #     而且 62 MB 那層也要重推 —— 但不常發生。
+# =============================================================================
+
+
+# =============================================================================
+#  常用指令：改完程式碼之後的完整流程（PowerShell）
+#
+#  cd D:\Fork\github\springboot-microservices\account
+#
+#  # 1. 重建 image（最後的 . 不能省，代表 build context = 當前目錄）
+#  docker build -t anthonysk/account:0.0.1-SNAPSHOT .
+#
+#  # 2. 移除舊容器（沒有同名容器時會顯示 "No such container"，可忽略）
+#  docker rm -f account
+#
+#  # 3. 用新 image 跑起來（名稱必須與第 1 步完全一致，否則會跑到舊 image）
+#  docker run -d --name account -p 8080:8080 anthonysk/account:0.0.1-SNAPSHOT
+#             ↑      ↑                ↑                    ↑
+#          背景執行  容器叫什麼名字   port 映射         用哪個 image
+#
+#  # 4. 確認啟動成功（約需 10 秒；回 {"status":"UP"} 代表就緒）
+#  curl http://localhost:8080/actuator/health
+#
+#  # 5. 看 log（-f 會持續追蹤，按 Ctrl+C 離開，不會停掉容器）
+#  docker logs -f account
+#
+#  # 6. 用完收工
+#  docker rm -f account
+#
+#  ---------------------------------------------------------------------------
+#  ⚠ 第 2 步不能省：已在執行的容器「不會」因為你重建 image 就自動更新，
+#    必須刪掉重跑。忘記的話會一直看到舊版行為，很難察覺。
+#
+#  ⚠ 第 1、3 步的 image 名稱必須一模一樣。若本機同時存在
+#    account:0.0.1-SNAPSHOT 與 anthonysk/account:0.0.1-SNAPSHOT，
+#    名稱寫錯會「安靜地」跑到另一個（舊的）image，不會有任何錯誤訊息。
+#
+#  ---------------------------------------------------------------------------
+#  名稱的兩種用法：
+#    account:0.0.1-SNAPSHOT              → 只在本機跑，不能 push
+#    anthonysk/account:0.0.1-SNAPSHOT    → anthonysk 必須是你真實的 Docker Hub
+#                                          帳號，登入後才能 docker push
+#
+#  瀏覽器可開：
+#    http://localhost:8080/swagger-ui/index.html   API 文件
+#    http://localhost:8080/actuator/health         健康檢查
 # =============================================================================
