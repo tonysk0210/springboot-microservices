@@ -1,0 +1,10 @@
+# 不要把本機建置產物與 IDE 設定送進 build context
+target/
+h2db/
+.idea/
+*.iml
+HELP.md
+Dockerfile
+.dockerignore
+.gitignore
+.gitattributes

@@ -31,7 +31,7 @@ spring:
 
   # JPA / Hibernate 設定
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect  # 指定 Hibernate 使用 H2 方言
+    # database-platform: org.hibernate.dialect.H2Dialect  # 停用：Hibernate 會依實際連線自動選方言；寫死會導致換 Postgres 時用錯語法
     hibernate:
       ddl-auto: validate                 # 啟動時自動根據 Entity 更新資料表結構 (create/update/validate/none)
     show-sql: true                       # 在 console 印出 Hibernate 執行的 SQL 語句
