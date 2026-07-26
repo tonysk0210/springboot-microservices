@@ -160,6 +160,27 @@ EXPOSE 8080
 #              -e SPRING_DATASOURCE_PASSWORD=secret ...
 ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb
 
+# image 的「標籤紙」：純 metadata，不影響程式執行，是給人和工具看的。
+# 用的是 OCI 標準欄位名稱，所以 registry 和掃描工具都認得。
+#   查看方式：docker image inspect <image> 的 Config.Labels 欄位
+#
+# 誰會讀它：
+#   docker inspect、docker images 的 label 篩選、資安掃描工具（Trivy/Grype）、SBOM 工具
+#
+# ⚠ 這裡的 LABEL「不足以」讓 GitHub Packages 顯示描述或自動連結 repo！
+#   本 Dockerfile 經 buildx 建出的是 OCI manifest，GitHub 只讀 manifest annotation。
+#   要讓 ghcr.io 顯示這些資訊，必須另外用 buildx 的 annotation 參數 —— 詳見檔案最後
+#   「推到 GitHub Packages」那一段。（推 Docker Hub 則完全不需要，Docker Hub 的描述
+#   是在網頁上另外填的。）
+#
+# ⚠ 刻意放在檔案最後面（緊鄰 ENTRYPOINT）。
+#   LABEL 會產生一個 0 B 的層，放前面會讓後面所有層的快取失效；
+#   放最後則改 label 幾乎不需要重建任何東西。
+LABEL org.opencontainers.image.title="account-service" \
+      org.opencontainers.image.description="帳戶與客戶資料的 REST API" \
+      org.opencontainers.image.authors="Tony Shangkuan" \
+      org.opencontainers.image.source="https://github.com/tonysk0210/springboot-microservices"
+
 # 「便當打開時要執行的動作」
 #
 # 上面所有步驟都是「準備」，只有這一行是 docker run 時才執行的。
@@ -248,8 +269,72 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 #    account:0.0.1-SNAPSHOT              → 只在本機跑，不能 push
 #    anthonysk/account:0.0.1-SNAPSHOT    → anthonysk 必須是你真實的 Docker Hub
 #                                          帳號，登入後才能 docker push
+#    ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT
+#                                        → 推到 GitHub Packages（見下方）
 #
 #  瀏覽器可開：
 #    http://localhost:8080/swagger-ui/index.html   API 文件
 #    http://localhost:8080/actuator/health         健康檢查
+# =============================================================================
+
+
+# =============================================================================
+#  推到 GitHub Packages（ghcr.io）—— 這一段是實際踩坑後才確定的做法
+# =============================================================================
+#
+#  # 1. 登入（token 從 https://github.com/settings/tokens 產生 classic token，
+#  #    勾選 write:packages；密碼欄位貼 token，不是 GitHub 密碼）
+#  docker login ghcr.io -u tonysk0210
+#
+#  # 2. 建置並直接推送（一定要用 buildx build + --push，見下方原因）
+#  docker buildx build --provenance=false --sbom=false `
+#    --annotation "org.opencontainers.image.description=帳戶與客戶資料的 REST API" `
+#    --annotation "org.opencontainers.image.source=https://github.com/tonysk0210/springboot-microservices" `
+#    --annotation "org.opencontainers.image.title=account-service" `
+#    --annotation "org.opencontainers.image.authors=Tony Shangkuan" `
+#    --push -t ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT .
+#
+#  # 3. 驗證 annotation 有寫進 manifest
+#  docker buildx imagetools inspect ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT --raw
+#
+#  ---------------------------------------------------------------------------
+#  🔑 為什麼要 --annotation？Dockerfile 的 LABEL 不夠嗎？
+#
+#     不夠。兩者寫在 image 的不同位置，不同工具讀不同位置：
+#       LABEL（寫進 image config）  → docker inspect、資安掃描工具讀這個
+#       --annotation（寫進 manifest）→ GitHub package 頁面讀這個
+#
+#     實測結論：GitHub 對 OCI manifest 只讀 manifest annotation，
+#     「不會」退回去讀 config label。所以只有 LABEL 的話，
+#     package 頁面的描述會空白、也不會自動連結 repo。
+#
+#     （loan 模組用 Buildpacks 建出的是舊的 Docker v2 manifest，
+#       該格式不支援 annotation，GitHub 才會退回讀 config label，
+#       所以它只靠 BP_OCI_* 就能顯示描述 —— 差異來自 manifest 格式。）
+#
+#  🔑 為什麼要 --provenance=false --sbom=false？
+#
+#     buildx 預設會額外附一份「建置履歷」，讓 tag 指向一個 index（清單），
+#     裡面有「你的 image + 履歷」兩項。GitHub 看到 index 就讀不到 metadata，
+#     package 頁面會出現「OS / Arch 2」而且描述空白。關掉就變成單一 manifest。
+#
+#  🔑 為什麼要 --push 而不是先 build 再 push？
+#
+#     --annotation 只在「直接寫入 registry」時生效。若先 --load 到本機
+#     Docker 再 docker push，annotation 會在 load 的過程中遺失。
+#
+#  ⚠ 最容易卡住的地方：GitHub 的 package metadata 在「首次建立時」就定型，
+#    事後補推同一個 tag 不會更新描述與 repo 連結。
+#    所以設定改了之後，必須先到 GitHub 刪掉該 package，再重新推一次。
+#
+#  ⚠ --push 不會把 image 留在本機（buildx 直接送到 registry）。
+#    本機要用的話另外執行一次不帶 --push 的 docker build，
+#    或事後 docker pull 回來。
+#
+#  ⚠ 官方文件指出：命令列推送「本來就不保證」自動連結 repo，
+#    要保證自動連結請改用 GitHub Actions + GITHUB_TOKEN 建置推送。
+#    命令列推送若沒自動連上，可到 Package settings 手動 Connect repository。
+#
+#  ⚠ ghcr.io 推上去預設是 Private。要讓別人不登入就能 pull：
+#    Package settings → Danger Zone → Change visibility → Public
 # =============================================================================

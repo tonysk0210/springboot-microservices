@@ -121,7 +121,7 @@
 
                         三個模組刻意用三種不同的建 image 方式，方便對照：
                             account → Dockerfile（自己寫，完全掌控）
-                            loan    → Buildpacks（mvn spring[boot]:build[image]）
+                            loan    → Buildpacks（mvn spring-boot:build-image）
                             card    → Jib（這個）
 
                         Jib 最大特色：jib:build 可以「不需要 Docker」直接推到 registry，
@@ -135,6 +135,13 @@
                         mvn jib:build         直接推到 registry（不需要 Docker，要先登入）
                         mvn jib:buildTar      產生 tar 檔（不需要 Docker）
 
+                        ⚠ Jib「不會自動編譯」，指令前面一定要加 compile：
+                              mvnw compile jib:dockerBuild
+                          漏掉會失敗，訊息是
+                              Obtaining project build output files failed;
+                              make sure you have compiled your project
+                          （spring-boot:build-image 會自動跑 package，Jib 不會。）
+
                         ===================================================================
                          各區塊的作用
                         ===================================================================
@@ -144,7 +151,7 @@
 
                         <to>         產出的 image 名稱，變數會自動展開：
                                        ${project.artifactId} → card
-                                       ${project.version}    → 0.0.1[SNAPSHOT]
+                                       ${project.version}    → 0.0.1-SNAPSHOT
                                      ⚠ 原本只寫 myimage 是不能用的，因為會被解析成
                                        docker.io/library/myimage:latest，而 library 是
                                        Docker Hub 官方命名空間，沒有權限 push。
@@ -160,7 +167,7 @@
                         ===================================================================
                         建 image：
                             cd D:\Fork\github\springboot-microservices\card
-                            .\mvnw jib:dockerBuild
+                            .\mvnw compile jib:dockerBuild
 
                         跑起來（d 參數背景執行、name 參數命名為 card）：
                             docker run -d (name=card) -p 9000:9000 anthonysk/card:0.0.1-SNAPSHOT
@@ -173,13 +180,10 @@
 
                         驗證：
                             curl http://localhost:9000/actuator/health
-                            瀏覽器：http://localhost:9000/swagger[ui]/index.html
+                            瀏覽器：http://localhost:9000/swagger-ui/index.html
 
                         收工：
                             docker rm -f card
-
-                        ⚠ XML 註解裡不能出現連續兩個減號，所以上面用中括號代替含連字號的
-                          字串（swagger[ui] = swagger,連字號,ui）。實際輸入時要還原。
                     -->
                     <from>
                         <!--
@@ -191,7 +195,7 @@
                               就會失敗並回報 incorrect username or password。
 
                             前提：本機要先有這個 image
-                                docker pull eclipse,temurin:25,jre,alpine
+                                docker pull eclipse-temurin:25-jre-alpine
                         -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
@@ -206,6 +210,30 @@
                             <SPRING_DATASOURCE_URL>jdbc:h2:mem:carddb</SPRING_DATASOURCE_URL>
                         </environment>
                         <user>nobody</user>
+                        <!--
+                            OCI 標準的 image label（純 metadata，不影響程式執行）。
+                            查看方式：docker image inspect 的 Config.Labels 欄位
+
+                            推到 ghcr.io 時，GitHub 的 package 頁面會用這些 label 顯示
+                            描述，並「嘗試」把 image 連結到 source 指向的 repo。
+
+                            🔑 為什麼 Jib 只設 label 就夠，account 卻還要額外的 annotation？
+                               因為 Jib 產出的是舊的 Docker v2 manifest，該格式不支援
+                               annotation，GitHub 只能退回去讀 config label。
+                               而 account 用 buildx 產出的是 OCI manifest，GitHub 會優先
+                               找 manifest annotation，找不到就空白（不會退回讀 label）。
+                               → 差異來自 manifest 格式，不是設定寫錯。
+
+                            ⚠ 自動連結 repo「不保證成功」。官方文件指出命令列推送只有用
+                              GitHub Actions + GITHUB_TOKEN 才保證自動連結；手動推送若沒
+                              連上，要到 Package settings 手動 Connect repository。
+                        -->
+                        <labels>
+                            <org.opencontainers.image.title>card-service</org.opencontainers.image.title>
+                            <org.opencontainers.image.description>卡片資料的 REST API</org.opencontainers.image.description>
+                            <org.opencontainers.image.authors>Tony Shangkuan</org.opencontainers.image.authors>
+                            <org.opencontainers.image.source>https://github.com/tonysk0210/springboot-microservices</org.opencontainers.image.source>
+                        </labels>
                     </container>
                 </configuration>
             </plugin>

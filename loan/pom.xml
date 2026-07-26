@@ -153,6 +153,10 @@
                         跑起來（加 d 參數背景執行、name 參數命名為 loan）：
                             docker run -d (name=loan) -p 8090:8090 anthonysk/loan:0.0.1-SNAPSHOT
 
+                        ⚠ 上面的 (name=loan) 是因為 XML 註解不能出現「連續兩個」減號，
+                          無法寫出長參數的前綴。實際輸入時 name 前面要加兩個減號。
+                          （單一減號完全合法，所以 0.0.1-SNAPSHOT、swagger-ui 都正常寫。）
+
                         ⚠ port 映射是 8090:8090，不是 8090:8080！
                           因為 loan 的 server.port 設定是 8090，容器內 App 聽的就是 8090。
                           寫成 8090:8080 的話容器會正常啟動，但永遠連不上，且沒有錯誤訊息。
@@ -172,6 +176,29 @@
                         <name>anthonysk/${project.artifactId}:${project.version}</name>
                         <env>
                             <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
+                            <!--
+                                BP_OCI_* 會被轉成 OCI 標準的 image label（純 metadata）。
+                                查看方式：docker image inspect 的 Config.Labels 欄位
+
+                                推到 ghcr.io 時，GitHub 的 package 頁面會用這些 label 顯示
+                                描述，並「嘗試」把 image 連結到 source 指向的 repo。
+
+                                🔑 為什麼 Buildpacks 只設 label 就夠，account 卻還要額外的
+                                   annotation？因為 Buildpacks 產出的是舊的 Docker v2
+                                   manifest，該格式不支援 annotation，GitHub 只能退回去讀
+                                   config label。而 account 用 buildx 產出的是 OCI manifest，
+                                   GitHub 會優先找 manifest annotation，找不到就空白
+                                   （不會退回讀 label）。
+                                   → 差異來自 manifest 格式，不是設定寫錯。
+
+                                ⚠ 自動連結 repo「不保證成功」。官方文件指出命令列推送只有用
+                                  GitHub Actions + GITHUB_TOKEN 才保證自動連結；手動推送若
+                                  沒連上，要到 Package settings 手動 Connect repository。
+                            -->
+                            <BP_OCI_TITLE>loan-service</BP_OCI_TITLE>
+                            <BP_OCI_DESCRIPTION>貸款資料的 REST API</BP_OCI_DESCRIPTION>
+                            <BP_OCI_AUTHORS>Tony Shangkuan</BP_OCI_AUTHORS>
+                            <BP_OCI_SOURCE>https://github.com/tonysk0210/springboot-microservices</BP_OCI_SOURCE>
                         </env>
                     </image>
                     <excludes>
