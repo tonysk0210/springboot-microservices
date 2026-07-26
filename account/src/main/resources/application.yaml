@@ -18,7 +18,8 @@ spring:
 
   # 資料來源設定 (H2 檔案模式 + AUTO_SERVER：資料會保留到磁碟，且允許多程序連線)
   datasource:
-    url: jdbc:h2:file:./account/h2db/accountdb;AUTO_SERVER=true        # 檔案模式；路徑相對於 JVM 工作目錄；AUTO_SERVER 允許 Spring Boot 與 IntelliJ Database 同時連線
+    # 預設本機開發用 H2 檔案模式（~ 為使用者家目錄，不受 JVM 工作目錄影響）；部署時由 SPRING_DATASOURCE_URL 覆寫成外部資料庫
+    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:~/h2db/accountdb;AUTO_SERVER=true}
     driverClassName: org.h2.Driver       # H2 JDBC 驅動類別
     username: sa                         # 預設使用者名稱
     password: ''                         # 預設密碼為空
