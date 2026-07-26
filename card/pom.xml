@@ -110,6 +110,106 @@
                 </configuration>
             </plugin>
             <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <!--
+                        ===================================================================
+                         Jib：Google 的容器建置工具（card 模組用這個方式）
+                        ===================================================================
+
+                        三個模組刻意用三種不同的建 image 方式，方便對照：
+                            account → Dockerfile（自己寫，完全掌控）
+                            loan    → Buildpacks（mvn spring[boot]:build[image]）
+                            card    → Jib（這個）
+
+                        Jib 最大特色：jib:build 可以「不需要 Docker」直接推到 registry，
+                        因為它在 JVM 裡直接組出 image 的層並上傳，繞過 Docker daemon。
+                        這在 CI 環境很有用（不必在 CI 裡跑 Docker in Docker）。
+
+                        ===================================================================
+                         三個 goal 的差別
+                        ===================================================================
+                        mvn jib:dockerBuild   建到本機 Docker（需要 Docker 在跑）
+                        mvn jib:build         直接推到 registry（不需要 Docker，要先登入）
+                        mvn jib:buildTar      產生 tar 檔（不需要 Docker）
+
+                        ===================================================================
+                         各區塊的作用
+                        ===================================================================
+                        <from>       基底 image。Jib 會依專案 Java 版本自動挑，但 3.5.2
+                                     不一定認得 Java 25，所以明確指定；同時與 account 的
+                                     Dockerfile 使用同一個基底，兩者行為才一致。
+
+                        <to>         產出的 image 名稱，變數會自動展開：
+                                       ${project.artifactId} → card
+                                       ${project.version}    → 0.0.1[SNAPSHOT]
+                                     ⚠ 原本只寫 myimage 是不能用的，因為會被解析成
+                                       docker.io/library/myimage:latest，而 library 是
+                                       Docker Hub 官方命名空間，沒有權限 push。
+
+                        <container>  等同 Dockerfile 的 EXPOSE / ENV / USER：
+                                       ports       → EXPOSE
+                                       environment → ENV（預設用記憶體資料庫，語意明確
+                                                     表示容器內資料不持久）
+                                       user        → USER（避免以 root 執行容器）
+
+                        ===================================================================
+                         操作指令
+                        ===================================================================
+                        建 image：
+                            cd D:\Fork\github\springboot-microservices\card
+                            .\mvnw jib:dockerBuild
+
+                        跑起來（d 參數背景執行、name 參數命名為 card）：
+                            docker run -d (name=card) -p 9000:9000 anthonysk/card:0.0.1-SNAPSHOT
+
+                        check db：docker logs card | Select-String "jdbc:h2"
+
+                        ⚠ port 映射是 9000:9000，不是 9000:8080！
+                          因為 card 的 server.port 設定是 9000，容器內 App 聽的就是 9000。
+                          寫錯的話容器會正常啟動，但永遠連不上，且沒有任何錯誤訊息。
+
+                        驗證：
+                            curl http://localhost:9000/actuator/health
+                            瀏覽器：http://localhost:9000/swagger[ui]/index.html
+
+                        收工：
+                            docker rm -f card
+
+                        ⚠ XML 註解裡不能出現連續兩個減號，所以上面用中括號代替含連字號的
+                          字串（swagger[ui] = swagger,連字號,ui）。實際輸入時要還原。
+                    -->
+                    <from>
+                        <!--
+                            docker:// 前綴 = 直接使用「本機 Docker 已有的 image」，
+                            不去 registry 抓，因此不需要 registry 驗證。
+
+                            ⚠ 不加這個前綴的話 Jib 會去 Docker Hub 抓 manifest，
+                              而 Docker Desktop 的憑證存放區若有無效登入資訊，
+                              就會失敗並回報 incorrect username or password。
+
+                            前提：本機要先有這個 image
+                                docker pull eclipse,temurin:25,jre,alpine
+                        -->
+                        <image>docker://eclipse-temurin:25-jre-alpine</image>
+                    </from>
+                    <to>
+                        <image>anthonysk/${project.artifactId}:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <port>9000</port>
+                        </ports>
+                        <environment>
+                            <SPRING_DATASOURCE_URL>jdbc:h2:mem:carddb</SPRING_DATASOURCE_URL>
+                        </environment>
+                        <user>nobody</user>
+                    </container>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <executions>
