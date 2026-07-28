@@ -1,0 +1,324 @@
+# =============================================================================
+#  這是什麼？
+#
+#    Dockerfile  = 一份「做便當的食譜」        → 產出 image
+#    compose.yml = 一份「整桌菜怎麼上」的清單   → 把多個 image 跑成一套系統
+#
+#  這個檔案取代的是「手動打三次 docker run」：
+#
+#    docker run -d --name account -p 8080:8080 anthonysk/account:0.0.1-SNAPSHOT
+#    docker run -d --name loan    -p 8090:8090 anthonysk/loan:0.0.1-SNAPSHOT
+#    docker run -d --name card    -p 9000:9000 anthonysk/card:0.0.1-SNAPSHOT
+#
+#  改成一行：docker compose up -d
+#
+#  ---------------------------------------------------------------------------
+#  ⚠ 檔案必須放在專案根目錄（跟 account/ card/ loan/ 同一層）
+#
+#    原因 1：只有這裡同時看得到三個服務
+#    原因 2：build 的相對路徑（./account）是以「本檔案的位置」為基準
+#    原因 3：Compose 拿「本檔案所在的資料夾名」當專案名稱，也就是
+#            springboot-microservices，所有資源都會用它當前綴：
+#              網路   springboot-microservices_default
+#              容器   springboot-microservices-account-1（本檔有指定名字，故不適用）
+#
+#  ⚠ 檔名別同時放兩份
+#    Compose 的搜尋順序是 compose.yaml → compose.yml → docker-compose.yaml
+#    → docker-compose.yml，找到第一個就停。兩個都放會有一個被「安靜地」忽略。
+# =============================================================================
+
+
+services:
+  # ===========================================================================
+  #  account —— 帳戶與客戶資料
+  # ===========================================================================
+  account:
+    # ↑ 這個 key 有兩個身分，很容易被忽略：
+    #     1. 指令要指定單一服務時用它：docker compose logs -f account
+    #     2. 它就是「DNS 名稱」—— 之後 loan 要呼叫 account 時寫 http://account:8080
+    #   注意 DNS 認的是這個 key，不是下面的 container_name。
+
+    # 本檔案「只負責跑，不負責建」—— 三個 image 都由你自己先建好。
+    #   account：cd account && docker build -t anthonysk/account:0.0.1-SNAPSHOT .
+    #
+    # （account 其實有 Dockerfile，可以寫成 build: ./account 交給 Compose 代建。
+    #   刻意不寫，讓三個服務保持一致的心智模型：Dockerfile 管「建」，
+    #   compose.yml 管「跑」。代價是本機沒有這個 image 時，Compose 會改去
+    #   Docker Hub 拉，然後報 pull access denied —— 那個訊息很誤導，
+    #   看起來像登入問題，實際上只是你還沒 build 而已。）
+    image: anthonysk/account:0.0.1-SNAPSHOT
+
+    container_name: account-ms
+    # 不寫的話會自動命名 springboot-microservices-account-1（結尾 -1 是為了支援
+    # --scale 開多份）。寫死名字比較好認，但代價是不能再 --scale（同名會衝突）。
+
+    ports:
+      - "8080:8080"
+    #    ↑主機  ↑容器
+    #  右邊的 8080 來自 Dockerfile 的 EXPOSE 8080，是容器內部真正在聽的 port。
+    #  左邊是你 Windows 上要用哪個號碼連進去，可以改成 18080:8080。
+    #
+    #  ⚠ 這行「只影響主機端」。容器之間互相呼叫走內部網路，不需要 ports，
+    #    而且用的永遠是右邊那個容器 port。
+
+    environment:
+      # Dockerfile 裡已經有 ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb，
+      # 這裡不覆寫就沿用它 —— 記憶體資料庫，容器一關資料就沒了。
+      # 要改成「資料存得住」請看檔案最下面的〈進階〉。
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+      # ↑ 沒有這行的話，JVM 預設只拿記憶體上限的 25% 當 heap
+      #   → 700m 限制下 heap 只有 175MB。設 75% 拉到約 525MB，
+      #     剩下留給 metaspace、code cache、thread stack。
+
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+    # = docker run --memory=700m
+    #
+    # ⚠ deploy 原本是 Docker Swarm 專用欄位，舊版 docker-compose（v1，有橫線）
+    #   會直接忽略它。現在的 docker compose（v2，空格）才會確實套用。
+    #   等價的簡單寫法是 mem_limit: 700m。
+    #
+    # ⚠ 超過上限「不會」拋 OutOfMemoryError，是被 Linux OOM killer 直接砍掉，
+    #   docker ps -a 顯示 exit code 137，log 通常什麼線索都不留。
+    #   三個服務 × 700m = 2.1GB，記得確認 Docker Desktop 的 WSL2 記憶體配額夠。
+
+  # ===========================================================================
+  #  loan —— 貸款資料
+  # ===========================================================================
+  loan:
+    # loan 沒有 Dockerfile，image 是 Maven + Buildpacks 產的 —— 就算想寫 build:
+    # 也寫不了，Compose 只看得懂 Dockerfile，叫不動 Maven。
+    #
+    #   要更新這個 image：cd loan && ./mvnw spring-boot:build-image
+    image: anthonysk/loan:0.0.1-SNAPSHOT
+    container_name: loan-ms
+    ports:
+      - "8090:8090"
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+
+  # ===========================================================================
+  #  card —— 信用卡資料
+  # ===========================================================================
+  card:
+    # card 的 image 是 Jib 產的（設定在 card/pom.xml），同樣不經過 Dockerfile。
+    #   要更新：cd card && ./mvnw compile jib:dockerBuild
+    image: anthonysk/card:0.0.1-SNAPSHOT
+    container_name: card-ms
+    ports:
+      - "9000:9000"
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    deploy:
+      resources:
+        limits:
+          memory: 700m
+
+
+# =============================================================================
+#  為什麼沒有 networks: 區塊？
+#
+#  因為不需要。Compose 一定會自動建一個網路並把所有服務接上去，名字是
+#  「專案名_default」→ springboot-microservices_default。
+#
+#  自訂網路自帶 Docker 內建 DNS（容器裡的 /etc/resolv.conf 會指向 127.0.0.11），
+#  所以三個服務之間現在就能用名字互相呼叫：
+#
+#      http://account:8080      http://loan:8090      http://card:9000
+#
+#  這正是「三次 docker run」做不到的事 —— 那樣起的容器會被丟進 Docker 內建的
+#  預設 bridge 網路，而預設 bridge「不提供容器名稱解析」，只能用會變動的 IP。
+#
+#  ⚠ 名字只在「容器世界」有效。你從 Windows 瀏覽器打 http://account:8080 是不通的，
+#    主機端要用 http://localhost:8080 —— 走的是上面 ports: 開的那道門。
+#
+#      從哪裡呼叫              localhost:8080    account:8080
+#      ─────────────────────────────────────────────────────
+#      Windows 瀏覽器              ✅               ❌
+#      另一個容器                  ❌（指自己）      ✅
+#
+#  什麼時候才真的需要寫 networks:？當你要「分層隔離」的時候，例如
+#  gateway 只接 frontend、db 只接 backend，讓 gateway 在網路層就碰不到 db。
+#  現在三個服務地位平等，寫了也只是換個名字而已。
+# =============================================================================
+
+
+# =============================================================================
+#  常用指令（PowerShell，在專案根目錄執行）
+#
+#  ── 先建 image（本檔案不負責建，改過程式碼一定要自己重跑對應那行）──────────
+#  cd account; docker build -t anthonysk/account:0.0.1-SNAPSHOT .
+#  cd loan;    ./mvnw spring-boot:build-image
+#  cd card;    ./mvnw compile jib:dockerBuild
+#
+#  ── 再跑 ──────────────────────────────────────────────────────────────────
+#  # 啟動全部（-d = 背景執行）
+#  docker compose up -d
+#
+#  # 只重啟一個服務（image 重建後用這個換掉舊容器）
+#  docker compose up -d account
+#
+#  # 看狀態（含 port 對應、健康狀態）
+#  docker compose ps
+#
+#  # 看 log（三個混流，每行標服務名；-f 持續追蹤，Ctrl+C 離開不會停容器）
+#  docker compose logs -f
+#  docker compose logs -f account
+#
+#  # 進容器裡面看看
+#  docker compose exec account sh
+#
+#  # 全部收工（容器 + 自動建的網路一起清掉）
+#  docker compose down
+#
+#  ---------------------------------------------------------------------------
+#  驗證服務互連真的通了（這是 docker run 三次做不到的事）：
+#
+#  docker compose exec loan sh
+#  wget -qO- http://account:8080/actuator/health
+#  → {"status":"UP"}
+#
+#  ---------------------------------------------------------------------------
+#  主機端可以開的網址：
+#    http://localhost:8080/swagger-ui/index.html     account API 文件
+#    http://localhost:8090/swagger-ui/index.html     loan
+#    http://localhost:9000/swagger-ui/index.html     card
+#    http://localhost:8080/actuator/health           健康檢查
+#    http://localhost:8080/h2-console                H2 主控台
+#
+#  ---------------------------------------------------------------------------
+#  ⚠ image 沒建過就 up，會看到 pull access denied 或 manifest unknown。
+#    那不是登入問題 —— 是 Compose 在本機找不到 image，改去 Docker Hub 拉，
+#    而 anthonysk/xxx 你根本沒推上去。回頭把上面那三行建置指令跑一次即可。
+#
+#  ⚠ 改了程式碼、重建 image 之後，一定要再 up 一次。
+#    已經在跑的容器「不會」因為 image 更新就自動換掉。
+#    好消息是 Compose 會自己偵測 image 變了並重建容器，
+#    不必像 docker run 那樣先手動 docker rm -f。
+# =============================================================================
+
+
+# =============================================================================
+#  進階：之後想加的東西（現在都不需要，先知道長什麼樣就好）
+# =============================================================================
+#
+#  ── 1. 讓 H2 資料存得住 ────────────────────────────────────────────────────
+#  三個 image 都已經在建置階段把 SPRING_DATASOURCE_URL 設成記憶體模式了，
+#  只是各自用不同機制寫的：
+#    account  Dockerfile        ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb
+#    card     Jib (pom.xml)     <environment><SPRING_DATASOURCE_URL>jdbc:h2:mem:carddb
+#    loan     Buildpacks(pom)   <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb
+#
+#  所以三個都是「資料只活在記憶體裡，容器一關就沒」，跟 application.yaml 的
+#  預設值（jdbc:h2:file:~/h2db/xxxdb）無關 —— 那個預設值只在「本機直接跑 jar」
+#  時才會生效，容器裡永遠被上面三行蓋掉。
+#
+#  要讓資料存得住，得同時做兩件事，缺一不可 ——
+#  volume 提供一個容器外的落腳處，環境變數讓 H2 把檔案寫到那裡。
+#  （三份 schema.sql 都是 CREATE TABLE IF NOT EXISTS，重複啟動不會出錯，
+#    可以安全開啟。）
+#
+#  ⚠ compose 的 environment: 優先權高於 image 內建的 ENV，所以不必重建 image。
+#    順序是：compose environment  >  image 內建 ENV  >  application.yaml 預設值
+#    三種建置方式設的都只是「預設值」，都蓋得掉：
+#      Dockerfile ENV / Jib <environment>  → 一般的 image ENV
+#      loan 的 BPE_DEFAULT_*               → 前綴的 DEFAULT 就是「可被覆蓋」的意思
+#                                            （BPE_* 不加 DEFAULT 才是強制寫死）
+#
+#  ---------------------------------------------------------------------------
+#  寫法 A：named volume —— 由 Docker 管理（推薦，單純想讓資料留著就用這個）
+#
+#    services:
+#      account:
+#        volumes:
+#          - "account-data:/data"
+#        environment:
+#          SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
+#
+#    volumes:              # ← 跟 services: 同一層，檔案最下面
+#      account-data:
+#      loan-data:
+#      card-data:
+#
+#  ⚠ named volume「不在」你的 D 槽，也不在 Windows 檔案系統上。
+#    它由 Docker daemon 管在 WSL2 虛擬機裡面，用 docker volume inspect 可以查到
+#    Mountpoint，但那是 Linux 路徑，檔案總管開不了。
+#    好處：效能較佳（不跨 Windows/WSL2 檔案系統）、Docker 幫你管生命週期。
+#
+#  ---------------------------------------------------------------------------
+#  寫法 B：bind mount —— 直接指定 Windows 上的資料夾
+#
+#      account:
+#        volumes:
+#          - "D:/docker-data/account:/data"     # ← 用正斜線，反斜線會被 YAML 吃掉
+#        environment:
+#          SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
+#
+#  這種才是真的落到 D 槽，檔案總管看得到、DBeaver 可以直接開那個 .mv.db。
+#  不需要在最下面宣告 volumes:（它不是 Docker 管理的物件，就是一個路徑）。
+#  代價：跨檔案系統，IO 較慢；權限問題也比較容易出現。
+#
+#  ---------------------------------------------------------------------------
+#  ⚠ 三個服務要各給各的 volume，不要共用同一個。
+#    共不共用只看「名字有沒有一樣」—— 三行都寫 shared:/data 就會變成共用。
+#    微服務本來就該各自擁有自己的資料庫，而且 H2 檔案模式的 lock 機制
+#    跨容器行為不可靠。
+#
+#  ⚠ account 的容器是用非 root 的 app 使用者跑的（見 Dockerfile 的 USER app），
+#    掛 volume 後若出現 Permission denied，要另外處理目錄權限。
+#
+#  ⚠ 刪除 volume：docker compose down -v （多一個 -v，資料真的消失）
+#    只打 docker compose down 的話 volume 會留著，下次 up 資料還在。
+#
+#  ── 2. 健康檢查 ────────────────────────────────────────────────────────────
+#  三個服務都有 actuator，所以可以讓 docker compose ps 顯示 healthy/unhealthy：
+#
+#    account:
+#      healthcheck:
+#        test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+#        interval: 10s
+#        timeout: 3s
+#        retries: 5
+#        start_period: 30s      # 前 30 秒失敗不算數（Spring Boot 啟動要時間）
+#
+#  ⚠ 指令要挑「那個 image 裡真的有」的工具，三個 image 基底不同：
+#      account（Dockerfile, temurin-alpine）→ 有 BusyBox wget
+#      card   （Jib, temurin-alpine）        → 有 BusyBox wget
+#      loan   （Buildpacks, Ubuntu jammy）   → 可能只有 curl，要用 curl -f 試
+#    寫錯工具的話容器會一直顯示 unhealthy，但服務其實是好的，很容易誤判。
+#
+#  ── 3. 啟動順序 ────────────────────────────────────────────────────────────
+#  等 loan 真的要呼叫 account 時，可以要求「account 健康了才起 loan」
+#  （需要先做好上面的 healthcheck）：
+#
+#    loan:
+#      depends_on:
+#        account:
+#          condition: service_healthy
+#
+#  ── 4. 換掉 H2 ─────────────────────────────────────────────────────────────
+#  application.yaml 已經預留 ${SPRING_DATASOURCE_URL:...}，所以加一個 db 服務
+#  再覆寫環境變數就能換 Postgres，Java 程式碼一行都不用改：
+#
+#    accountdb:
+#      image: postgres:17-alpine
+#      environment:
+#        POSTGRES_DB: accountdb
+#        POSTGRES_USER: app
+#        POSTGRES_PASSWORD: secret
+#
+#    account:
+#      environment:
+#        SPRING_DATASOURCE_URL: "jdbc:postgresql://accountdb:5432/accountdb"
+#        SPRING_DATASOURCE_USERNAME: app
+#        SPRING_DATASOURCE_PASSWORD: secret
+#
+#  注意連線字串裡的 accountdb 就是「服務名 = DNS 名」—— 這就是自訂網路
+#  帶來的好處最直接的用途。
+# =============================================================================
