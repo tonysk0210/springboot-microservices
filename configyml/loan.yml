@@ -15,7 +15,7 @@ loan:
 
   contact-details:
     name: "Tony Shangkuan - Developer"
-    email: "loan-support@bank.com"
+    email: '{cipher}2ec66bd9b7f08102e383f9263c578e7f5b65e7322d49316ce95f739832b188d5fbb32d38d99197d0d51d3b0e34561e16'
 
   on-call-support:
     - "(02) 2222-3333"

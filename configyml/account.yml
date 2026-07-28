@@ -28,7 +28,7 @@ account:
 
   contact-details:
     name: "Tony Shangkuan - Developer"
-    email: "account-support@bank.com"
+    email: '{cipher}0f0c83204472da9aba29cf0a3a07573e6d320e7502dc8fea2d4dbb76eab6eb025aec161e1ffbd58f4b636dc1e62f691e'
 
   on-call-support:
     - "(02) 1234-5678"

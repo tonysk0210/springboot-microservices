@@ -15,7 +15,7 @@ card:
 
   contact-details:
     name: "Tony Shangkuan - Developer"
-    email: "card-support@bank.com"
+    email: '{cipher}13c3b1deeaacd298bada4fc49037045fcb395f1730164068a9425e748805f4dce31cb95070d5fff27cb34f8c4d652395'
 
   on-call-support:
     - "(02) 6666-7777"
