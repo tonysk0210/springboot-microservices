@@ -157,6 +157,11 @@ services:
 #  cd loan;    ./mvnw spring-boot:build-image
 #  cd card;    ./mvnw compile jib:dockerBuild
 #
+#  ── 推到 GitHub Packages（可選，跟跑起來無關）────────────────────────────
+#  .\push-all.ps1                # 三個一起 tag + push 到 ghcr.io/tonysk0210
+#  .\push-all.ps1 -WhatIf        # 先看看會做什麼，不真的執行
+#  詳見該檔案開頭的說明（含 docker login 與 token 權限）
+#
 #  ── 再跑 ──────────────────────────────────────────────────────────────────
 #  # 啟動全部（-d = 背景執行）
 #  docker compose up -d
