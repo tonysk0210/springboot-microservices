@@ -1,5 +1,6 @@
 package com.example.card.controller;
 
+import com.example.card.dto.CardContactInfoDto;
 import com.example.card.dto.CardDto;
 import com.example.card.dto.ErrorResponseDto;
 import com.example.card.dto.ResponseDto;
@@ -28,6 +29,9 @@ import org.springframework.web.bind.annotation.*;
 public class CardController {
 
     private final ICardService cardService;
+
+    // 由 @ConfigurationProperties 綁好的設定 bean，內容來自 Config Server 的 config/card.yml
+    private final CardContactInfoDto cardContactInfoDto;
 
     @Operation(summary = "建立卡片", description = "以手機號碼建立一張卡片，卡號自動產生")
     @ApiResponses({
@@ -115,5 +119,20 @@ public class CardController {
                     .status(HttpStatus.EXPECTATION_FAILED)
                     .body(new ResponseDto(HttpStatus.EXPECTATION_FAILED.toString(), "卡片刪除失敗"));
         }
+    }
+
+    @Operation(
+            summary = "查詢服務設定資訊",
+            description = "回傳 card.* 這組設定的實際生效值。設定來自 Config Server 的 "
+                    + "config/card.yml；若 Config Server 沒開（本專案用 optional: 前綴，"
+                    + "抓不到不會啟動失敗），本地 application.yaml 沒有這組值，欄位會是 null。"
+    )
+    @ApiResponse(responseCode = "200", description = "查詢成功",
+            content = @Content(schema = @Schema(implementation = CardContactInfoDto.class)))
+    @GetMapping("/contact-info")
+    public ResponseEntity<CardContactInfoDto> getContactInfo() {
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(cardContactInfoDto);
     }
 }

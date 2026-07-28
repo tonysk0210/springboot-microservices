@@ -1,5 +1,31 @@
 spring:
   application:
     name: configserver
+
+  # ⚠ 這個 profile 一定要設。Config Server 的「預設後端是 git」，
+  #   不設 native 的話它會去找 spring.cloud.config.server.git.uri，
+  #   找不到就啟動失敗（或啟動了但任何請求都回 404 / 空的 propertySources）。
+  #   native = 從本機 classpath / 檔案系統讀，不需要 git repo。
+  profiles:
+    active: native
+
+  cloud:
+    config:
+      server:
+        native:
+          # 設定檔放哪。classpath:/config 對應到
+          #   configserver/src/main/resources/config/
+          # 裡面的 account.yml / loan.yml / card.yml
+          #
+          # ⚠ classpath 模式的檔案會被打包進 jar，所以「改了設定要重新打包」——
+          #   這樣就失去 Config Server 最大的好處了，只適合最初的練習。
+          #   下一步會換成讀磁碟目錄（改完重啟 configserver 即可）：
+          #     search-locations: "file:///D:/Fork/github/springboot-microservices/config"
+          #   最後才換成 git（設定有版控、可追溯誰改了什麼）：
+          #     spring.cloud.config.server.git.uri: https://github.com/...
+          search-locations: "classpath:/config"
+
 server:
   port: 8071
+  # 8071 不能省 —— 預設 8080 會跟 account 撞。
+  # 撞的話後啟動的那個會直接失敗（Port 8080 was already in use）。

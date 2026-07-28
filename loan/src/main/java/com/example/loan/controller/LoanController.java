@@ -2,6 +2,7 @@ package com.example.loan.controller;
 
 
 import com.example.loan.dto.ErrorResponseDto;
+import com.example.loan.dto.LoanContactInfoDto;
 import com.example.loan.dto.LoanDto;
 import com.example.loan.dto.ResponseDto;
 import com.example.loan.service.ILoanService;
@@ -29,6 +30,9 @@ import org.springframework.web.bind.annotation.*;
 public class LoanController {
 
     private final ILoanService loanService;
+
+    // 由 @ConfigurationProperties 綁好的設定 bean，內容來自 Config Server 的 config/loan.yml
+    private final LoanContactInfoDto loanContactInfoDto;
 
     @Operation(summary = "建立貸款", description = "以手機號碼建立一筆貸款，貸款編號自動產生")
     @ApiResponses({
@@ -120,6 +124,21 @@ public class LoanController {
                     .status(HttpStatus.EXPECTATION_FAILED)
                     .body(new ResponseDto(HttpStatus.EXPECTATION_FAILED.toString(), "貸款刪除失敗"));
         }
+    }
+
+    @Operation(
+            summary = "查詢服務設定資訊",
+            description = "回傳 loan.* 這組設定的實際生效值。設定來自 Config Server 的 "
+                    + "config/loan.yml；若 Config Server 沒開（本專案用 optional: 前綴，"
+                    + "抓不到不會啟動失敗），本地 application.yaml 沒有這組值，欄位會是 null。"
+    )
+    @ApiResponse(responseCode = "200", description = "查詢成功",
+            content = @Content(schema = @Schema(implementation = LoanContactInfoDto.class)))
+    @GetMapping("/contact-info")
+    public ResponseEntity<LoanContactInfoDto> getContactInfo() {
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(loanContactInfoDto);
     }
 
 }

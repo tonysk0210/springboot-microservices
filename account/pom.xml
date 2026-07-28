@@ -29,6 +29,10 @@
     </scm>
     <properties>
         <java.version>25</java.version>
+        <!-- Spring Cloud 發行列車版本（年份.次版.修訂，非語意化版本），給下方 BOM 用。
+             ⚠ 必須與 Spring Boot 4.1.0 相容。配錯只會在啟動時噴 NoSuchMethodError，
+               不會有明確的版本錯誤訊息。對照表 https://spring.io/projects/spring-cloud -->
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
     </properties>
     <dependencies>
         <dependency>
@@ -73,6 +77,19 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.0.3</version>
         </dependency>
+        <!-- Config Client —— 啟動時去 Config Server (8071) 拿 config/account.yml
+             （檔名 = spring.application.name），並帶進 @RefreshScope、/actuator/refresh。
+             版本由下方 BOM 決定，不寫 <version>。
+
+             ⚠ 必須在 application.yaml 設 spring.config.import，否則啟動失敗
+               （No spring.config.import property has been defined）：
+                 import: "configserver:http://localhost:8071/"           連不上就失敗
+                 import: "optional:configserver:http://localhost:8071/"  連不上改用本地設定
+               容器裡要把 localhost 換成服務名 configserver。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-config</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>
@@ -94,6 +111,22 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <!-- Spring Cloud 的版本對照表（BOM），所以上面的 spring-cloud 依賴不必寫 <version>。
+         Spring Boot 的依賴不需要，因為 spring-boot-starter-parent 已內建版本管理。
+         ⚠ type=pom + scope=import 不能省，否則版本管理會安靜地失效。
+         ⚠ 只管版本，不引入任何函式庫。 -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>

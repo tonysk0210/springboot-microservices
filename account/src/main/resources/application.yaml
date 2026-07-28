@@ -13,8 +13,22 @@ logging:
 
 spring:
   # 應用程式名稱（會用於服務註冊、日誌等）
+  # ⚠ 這個名字同時決定去 Config Server 拿哪個檔案：account → config/account.yml
   application:
     name: account
+
+  # 啟動時去 Config Server 抓設定，抓回來的內容疊在「本檔案之上」
+  # （同名 key 遠端贏；但環境變數又贏過遠端，所以 compose 的 environment: 仍可當除錯後門）
+  #
+  # optional: 前綴 = 抓不到也照樣啟動，退回用本檔案的值。
+  #   本機開發方便：不必為了跑 account 而先開 configserver。
+  #   拿掉 optional: → Config Server 沒開就啟動失敗，正式環境通常要這樣，
+  #   免得帶著錯誤（本地舊的）設定上線而不自知。
+  #
+  # ⚠ 容器環境要把 localhost 換成服務名，容器裡的 localhost 指的是容器自己：
+  #     SPRING_CONFIG_IMPORT: "configserver:http://configserver:8071/"
+  config:
+    import: "optional:configserver:http://localhost:8071/"
 
   # 資料來源設定 (H2 檔案模式 + AUTO_SERVER：資料會保留到磁碟，且允許多程序連線)
   datasource:

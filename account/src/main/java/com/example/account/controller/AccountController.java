@@ -1,5 +1,6 @@
 package com.example.account.controller;
 
+import com.example.account.dto.AccountContactInfoDto;
 import com.example.account.dto.CustomerDto;
 import com.example.account.dto.ErrorResponseDto;
 import com.example.account.dto.ResponseDto;
@@ -28,6 +29,9 @@ import org.springframework.web.bind.annotation.*;
 public class AccountController {
 
     private final IAccountService accountService;
+
+    // 由 @ConfigurationProperties 綁好的設定 bean，內容來自 Config Server 的 config/account.yml
+    private final AccountContactInfoDto accountContactInfoDto;
 
     @Operation(summary = "建立帳戶", description = "新增客戶並自動配發一組帳號")
     @ApiResponses({
@@ -119,5 +123,20 @@ public class AccountController {
                     .status(HttpStatus.EXPECTATION_FAILED)
                     .body(new ResponseDto(HttpStatus.EXPECTATION_FAILED.toString(), "刪除失敗"));
         }
+    }
+
+    @Operation(
+            summary = "查詢服務設定資訊",
+            description = "回傳 account.* 這組設定的實際生效值。設定來自 Config Server 的 "
+                    + "config/account.yml；若 Config Server 沒開（本專案用 optional: 前綴，"
+                    + "抓不到不會啟動失敗），本地 application.yaml 沒有這組值，欄位會是 null。"
+    )
+    @ApiResponse(responseCode = "200", description = "查詢成功",
+            content = @Content(schema = @Schema(implementation = AccountContactInfoDto.class)))
+    @GetMapping("/contact-info")
+    public ResponseEntity<AccountContactInfoDto> getContactInfo() {
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(accountContactInfoDto);
     }
 }
