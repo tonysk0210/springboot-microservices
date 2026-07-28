@@ -36,7 +36,7 @@ public class LoanContactInfoDto {
         @Schema(description = "聯絡人姓名", example = "Tony Shangkuan - Developer")
         private String name;
 
-        @Schema(description = "聯絡信箱", example = "loan-support@eazybank.com")
+        @Schema(description = "聯絡信箱", example = "loan-support@bank.com")
         private String email;
     }
 }

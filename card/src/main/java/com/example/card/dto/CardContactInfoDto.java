@@ -36,7 +36,7 @@ public class CardContactInfoDto {
         @Schema(description = "聯絡人姓名", example = "Tony Shangkuan - Developer")
         private String name;
 
-        @Schema(description = "聯絡信箱", example = "card-support@eazybank.com")
+        @Schema(description = "聯絡信箱", example = "card-support@bank.com")
         private String email;
     }
 }
