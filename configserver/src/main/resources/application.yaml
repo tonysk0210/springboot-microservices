@@ -43,6 +43,17 @@ spring:
           # 本機 clone 出現雜物時強制覆蓋，避免 configserver 卡在無法 pull 的狀態
           force-pull: true
 
+          # 啟動時就 clone repo（預設 false = 等第一個請求才 clone）。
+          #
+          # 預設的懶惰行為有個很難查的問題：uri 或 search-paths 打錯字時，
+          # configserver 會「正常啟動」，直到 account 第一次來要設定才失敗 ——
+          # 而錯誤出現在 configserver 的 log 裡，你在 account 那邊只看到拿到 null。
+          # 設 true 就是 fail fast：clone 不成功就啟動失敗，問題當場暴露。
+          #
+          # 容器化之後還有第二個好處：搭配 healthcheck，容器變成 healthy 時代表
+          # repo 真的 clone 好了，depends_on: service_healthy 才名副其實。
+          clone-on-start: true
+
           # 每次收到請求都會 git fetch（預設 refresh-rate: 0），所以你 push 之後
           # 不必重啟 configserver。要減少對 GitHub 的請求可以設秒數：
           # refresh-rate: 30
