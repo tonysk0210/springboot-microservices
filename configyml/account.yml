@@ -24,7 +24,7 @@
 account:
   # 值裡刻意標註「來自 configserver」—— 這樣你打 API 就能一眼確認
   # 拿到的是遠端設定，不是服務自己 application.yaml 裡的預設值
-  message: "歡迎使用帳戶相關 API（來自 configserver / git）"
+  message: "歡迎使用帳戶相關 API（改過了，測 refresh）"
 
   contact-details:
     name: "Tony Shangkuan - Developer"

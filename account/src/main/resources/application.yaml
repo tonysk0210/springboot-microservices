@@ -58,3 +58,27 @@ spring:
     init:
       mode: always                                      # 執行時機： embedded=僅嵌入式DB(mem) / always=每次啟動都執行 / never=不執行。file 模式必須用 always
       schema-locations: classpath:/sql/schema.sql       # DDL 腳本位置 (建立資料表結構)，位於 resources/sql/schema.sql
+
+# Actuator 端點設定
+management:
+  endpoints:
+    web:
+      exposure:
+        # Actuator 預設只開 health，其他端點都要明確列出來才會對外開放。
+        #   health   健康檢查（容器 healthcheck 用）
+        #   info     應用程式資訊
+        #   env      看所有設定的來源與優先序 —— 確認「值到底來自哪一層」最快的方式
+        #   refresh  重新向 Config Server 抓設定，不必重啟服務
+        #
+        # refresh 是 POST，且是 spring-cloud-context 提供的（不是 Boot 內建），
+        # 所以只有加了 spring-cloud-starter-config 的服務才有這個端點：
+        #     Invoke-RestMethod -Uri http://localhost:8080/actuator/refresh -Method Post
+        #     → 回傳「實際變動的 key 清單」，回 [] 代表沒抓到新東西（通常是忘記 push）
+        #
+        # ⚠ 不是所有設定 refresh 都改得動：
+        #     account.* 這類自訂設定、logging.level.*  → 有效
+        #     server.port（Tomcat 已綁定）、spring.datasource.*（連線池已建立）→ 無效，只能重啟
+        #
+        # ⚠ env 會印出所有設定（含資料庫連線字串），refresh 是任何人都能打的 POST。
+        #   正式環境必須用 Spring Security 保護 actuator，或只開在內部 port。
+        include: health,info,env,refresh
