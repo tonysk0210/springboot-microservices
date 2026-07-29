@@ -24,30 +24,6 @@ spring:
     username: guest
     password: guest
 
-  cloud:
-    bus:
-      refresh:
-        # 不要讓 configserver 自己去處理收到的 refresh 廣播。
-        #
-        # 為什麼：它的設定來自本檔案，不是 Config Server，refresh 自己毫無意義
-        # （log 會出現 "Keys refreshed []"），卻會順帶噴一段很長的 WARN：
-        #
-        #     Cannot create default instance of ConfigServerHealthIndicator
-        #     for reset; skipping property reset
-        #     BeanInstantiationException: No default constructor found
-        #
-        # 原因是 refresh 過程中 ConfigurationPropertiesRebinder 會把所有
-        # @ConfigurationProperties bean 先「reset 成預設值」（需要無參建構子），
-        # 而 Spring Cloud Config Server 內部的 ConfigServerHealthIndicator 沒有無參
-        # 建構子 → 建不出來 → 印 WARN 然後跳過。訊息本身就寫了 skipping，
-        # 功能沒有壞，refresh 流程照樣走完 —— 純粹是雜訊。
-        #
-        # 🔑 這行「只」關掉接收端（RefreshListener），不影響發送端。
-        #    原始碼裡 RefreshBusEndpoint（/actuator/busrefresh，負責發事件）在另一個
-        #    沒有這個條件的內部類別，所以之後裝 spring-cloud-config-monitor
-        #    做 GitHub webhook 廣播，一樣正常運作。
-        enabled: false
-
   # ===========================================================================
   #  ⚠ git 後端「不用、也不能」靠 profile 指定
   # ===========================================================================
@@ -70,6 +46,29 @@ spring:
   # ===========================================================================
 
   cloud:
+    bus:
+      refresh:
+        # 不要讓 configserver 自己去處理收到的 refresh 廣播。
+        #
+        # 為什麼：它的設定來自本檔案，不是 Config Server，refresh 自己毫無意義
+        # （log 會出現 "Keys refreshed []"），卻會順帶噴一段很長的 WARN：
+        #
+        #     Cannot create default instance of ConfigServerHealthIndicator
+        #     for reset; skipping property reset
+        #     BeanInstantiationException: No default constructor found
+        #
+        # 原因是 refresh 過程中 ConfigurationPropertiesRebinder 會把所有
+        # @ConfigurationProperties bean 先「reset 成預設值」（需要無參建構子），
+        # 而 Config Server 內部的 ConfigServerHealthIndicator 沒有無參建構子
+        # → 建不出來 → 印 WARN 然後跳過。訊息本身就寫了 skipping，
+        # 功能沒壞、refresh 流程照樣走完 —— 純粹是雜訊。
+        #
+        # 🔑 這行「只」關掉接收端（RefreshListener），不影響發送端。
+        #    原始碼裡 RefreshBusEndpoint（負責發事件）在另一個沒有這個條件的
+        #    內部類別，所以之後裝 spring-cloud-config-monitor 做 GitHub webhook
+        #    廣播，一樣正常運作。
+        enabled: false
+
     config:
       server:
         git:
