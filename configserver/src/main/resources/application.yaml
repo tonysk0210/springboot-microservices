@@ -2,6 +2,28 @@ spring:
   application:
     name: configserver
 
+  # RabbitMQ 連線 —— 因為 pom 有 spring-cloud-starter-bus-amqp
+  #
+  # ⚠ 加了那個依賴之後，RabbitMQ 沒跑起來 configserver 就啟動不了
+  #   （binder 啟動時要建立 exchange 與 queue，連不上 broker 就掛）：
+  #      docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+  #
+  # 🔑 configserver 為什麼需要 Bus？
+  #    不是為了「自己接收 refresh」—— 它的設定來自本檔案，不是 Config Server，
+  #    收到廣播也沒東西可更新。
+  #    真正的理由是為未來鋪路：裝上 spring-cloud-config-monitor 之後，
+  #    GitHub webhook 打進 /monitor，configserver 就能把 refresh 事件廣播給所有服務，
+  #    達成「git push 後全自動刷新」。那時候沒有 Bus 就送不出去。
+  #
+  # 這四行同樣可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
+  # 寫出來是為了讓依賴關係看得見，以及容器化時只改 host 一行：
+  #      SPRING_RABBITMQ_HOST: rabbitmq
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
   # ===========================================================================
   #  ⚠ git 後端「不用、也不能」靠 profile 指定
   # ===========================================================================

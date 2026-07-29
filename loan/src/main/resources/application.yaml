@@ -30,6 +30,31 @@ spring:
   config:
     import: "optional:configserver:http://localhost:8071/"
 
+  # RabbitMQ 連線 —— Spring Cloud Bus 靠它把 refresh 事件廣播給所有服務
+  #
+  # 🔑 這四行其實可以全部刪掉。Spring Boot 的預設值剛好就是本機 RabbitMQ 的
+  #    預設值（localhost / 5672 / guest / guest），不寫也會通。
+  #    刻意寫出來的理由有兩個：
+  #      1. 讓「這個服務依賴 RabbitMQ」在設定檔裡看得見，而不是藏在預設值裡
+  #      2. 容器化時只要改 host 一行，不必先去查預設值是什麼
+  #
+  # ⚠ 容器環境要改成服務名（容器裡的 localhost 指的是容器自己）：
+  #      SPRING_RABBITMQ_HOST: rabbitmq
+  #
+  # ⚠ RabbitMQ 沒跑起來的話，服務啟動會直接失敗（連不上 broker）：
+  #      docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+  #    管理介面 http://localhost:15672（guest/guest）→ Exchanges 分頁可以看到
+  #    springCloudBus 這個 fanout exchange，以及各服務綁在上面的 queue。
+  #
+  # ⚠ guest 帳號只適合本機練習，正式環境必須另建使用者。
+  #    若容器之間連線出現 ACCESS_REFUSED，就是 guest 被限制只能從 loopback 連線，
+  #    這時就得建一個專用帳號。
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
   # 資料來源設定（H2 檔案模式；資料保留於磁碟，AUTO_SERVER 允許多個程序連線）
   datasource:
     # 預設本機開發用 H2 檔案模式（~ 為使用者家目錄，不受 JVM 工作目錄影響）；部署時由 SPRING_DATASOURCE_URL 覆寫成外部資料庫
@@ -68,7 +93,8 @@ management:
         #   health   健康檢查（容器 healthcheck 用）
         #   info     應用程式資訊
         #   env      看所有設定的來源與優先序 —— 確認「值到底來自哪一層」最快的方式
-        #   refresh  重新向 Config Server 抓設定，不必重啟服務
+        #   refresh  重新向 Config Server 抓設定，不必重啟服務（只影響「這一個」服務）
+        #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓設定
         #
         # refresh 是 POST，且是 spring-cloud-context 提供的（不是 Boot 內建），
         # 所以只有加了 spring-cloud-starter-config 的服務才有這個端點：
@@ -81,4 +107,13 @@ management:
         #
         # ⚠ env 會印出所有設定（含資料庫連線字串），refresh 是任何人都能打的 POST。
         #   正式環境必須用 Spring Security 保護 actuator，或只開在內部 port。
-        include: health,info,env,refresh
+        #
+        # ⚠ busrefresh 需要 spring-cloud-starter-bus-amqp 依賴 + RabbitMQ 在跑，
+        #   兩者缺一端點就不會出現（打了回 404）。目前 pom 只有 spring-cloud-bus，
+        #   沒有 binder，所以這個端點還不會生效 —— 換成 starter 之後才會。
+        #
+        # 🔑 refresh 和 busrefresh 都留著，除錯時可以切一半：
+        #     busrefresh 打了某個服務沒更新，就單獨對它打 refresh
+        #       有更新 → 問題在 Bus（沒收到廣播：連不上 RabbitMQ 或漏加依賴）
+        #       沒更新 → 問題在 Config Server 那側（忘記 push，或設定其實沒變）
+        include: health,info,env,refresh,busrefresh
