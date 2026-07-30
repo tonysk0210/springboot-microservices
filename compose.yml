@@ -175,6 +175,33 @@ services:
       file: common.yml
       service: microservice-base
 
+    environment:
+      # ===================================================================
+      #  ⚠ loan 專屬：修掉 Paketo 記憶體計算器把 heap 壓到 46MB 的問題
+      # ===================================================================
+      #  症狀：啟動途中 Terminating due to java.lang.OutOfMemoryError: Java heap space
+      #
+      #  原因（啟動 log 的 Calculated JVM Memory Configuration 那行）：
+      #      700M 總量
+      #       − 10M   direct memory
+      #       − 157M  metaspace
+      #       − 240M  code cache
+      #       − 250M  thread stack（預設 Thread Count: 250 × -Xss1M）
+      #       ────────
+      #       = 43M   剩給 heap  →  -Xmx47470K，啟動就爆
+      #
+      #  ⚠ common.yml 的 JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75 對 loan 無效 ——
+      #    Paketo 會把自己算出的 -Xmx 追加在後面，而 -Xmx 優先權高於百分比設定。
+      #    account / card 不經過 Paketo，所以那行對它們正常生效（約 525MB heap）。
+      #
+      #  BPL_JVM_THREAD_COUNT 調低是最對症的解法：它只影響「計算器假設有幾條執行緒」，
+      #  250 是 Paketo 針對 Tomcat 預設 200 工作執行緒的估計，開發環境用不到那麼多。
+      #  降到 50 就把 200M 還給 heap → heap 約 243MB。
+      #
+      #  ⚠ 這只改「計算假設」，不限制實際執行緒數。如果應用真的開超過 50 條，
+      #    仍可能不夠用 —— 正式環境要照實際負載估，或直接提高 memory 上限。
+      BPL_JVM_THREAD_COUNT: 50
+
     # ⚠ loan 刻意「沒有」healthcheck。
     #   它的 image 是 Buildpacks（Paketo）建的，屬於 distroless 風格：
     #   實測過 /bin/sh、/usr/bin/wget、/usr/bin/curl 全都不存在，
