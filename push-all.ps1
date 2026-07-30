@@ -2,10 +2,12 @@
 #  push-all.ps1 —— 把本機三個 image 推到 GitHub Packages (ghcr.io)
 # =============================================================================
 #
-#  這個腳本「只負責推」，不負責建。執行前三個 image 必須已經存在本機：
-#      cd account; docker build -t anthonysk/account:0.0.1-SNAPSHOT .
-#      cd loan;    ./mvnw spring-boot:build-image
-#      cd card;    ./mvnw compile jib:dockerBuild
+#  這個腳本「只負責推」，不負責建。執行前四個 image 必須已經存在本機：
+#      cd configserver; ./mvnw compile jib:dockerBuild                      (Jib)
+#      cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .  (Dockerfile)
+#      cd loan;         ./mvnw spring-boot:build-image                      (Buildpacks)
+#      cd card;         ./mvnw compile jib:dockerBuild                      (Jib)
+#  （rabbitmq 用官方 image，不需要推）
 #
 #  做的事很單純，每個服務兩步：
 #      docker tag  anthonysk/xxx:tag  ghcr.io/tonysk0210/xxx:tag   (加個名牌，瞬間完成)
@@ -45,7 +47,7 @@ param(
     [string]   $GhcrOwner  = 'tonysk0210',
 
     # 要推哪幾個服務
-    [string[]] $Services   = @('account', 'loan', 'card')
+    [string[]] $Services   = @('configserver', 'account', 'loan', 'card')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,9 +80,10 @@ foreach ($svc in $Services) {
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  ✗ 本機找不到 $local" -ForegroundColor Red
         switch ($svc) {
-            'account' { Write-Host "    先建：cd account; docker build -t $local ." -ForegroundColor Yellow }
-            'loan'    { Write-Host "    先建：cd loan;    ./mvnw spring-boot:build-image" -ForegroundColor Yellow }
-            'card'    { Write-Host "    先建：cd card;    ./mvnw compile jib:dockerBuild" -ForegroundColor Yellow }
+            'configserver' { Write-Host "    先建：cd configserver; ./mvnw compile jib:dockerBuild" -ForegroundColor Yellow }
+            'account'      { Write-Host "    先建：cd account;      docker build -t $local ." -ForegroundColor Yellow }
+            'loan'         { Write-Host "    先建：cd loan;         ./mvnw spring-boot:build-image" -ForegroundColor Yellow }
+            'card'         { Write-Host "    先建：cd card;         ./mvnw compile jib:dockerBuild" -ForegroundColor Yellow }
         }
         $skipped += $svc
         continue

@@ -4,13 +4,18 @@
 #    Dockerfile  = 一份「做便當的食譜」        → 產出 image
 #    compose.yml = 一份「整桌菜怎麼上」的清單   → 把多個 image 跑成一套系統
 #
-#  這個檔案取代的是「手動打三次 docker run」：
+#  這個檔案取代的是「手動開五個容器，還要自己記啟動順序和一堆環境變數」：
 #
-#    docker run -d --name account -p 8080:8080 anthonysk/account:0.0.1-SNAPSHOT
-#    docker run -d --name loan    -p 8090:8090 anthonysk/loan:0.0.1-SNAPSHOT
-#    docker run -d --name card    -p 9000:9000 anthonysk/card:0.0.1-SNAPSHOT
+#    rabbitmq      → Bus 的訊息中介，其他四個都要連它
+#    configserver  → 設定中心，三個服務都要向它拿設定
+#    account / loan / card
 #
 #  改成一行：docker compose up -d
+#  順序（rabbitmq → configserver → 三個服務）由 depends_on + healthcheck 保證。
+#
+#  ⚠ 執行前需要專案根目錄有 .env，裡面要有 ENCRYPT_KEY（範本見 .env.example）。
+#    沒有的話 docker compose 會直接失敗並提示 —— 這是刻意的，因為
+#    configyml/*.yml 裡的 email 是加密的，沒金鑰會解出 null。
 #
 #  ---------------------------------------------------------------------------
 #  ⚠ 檔案必須放在專案根目錄（跟 account/ card/ loan/ 同一層）
@@ -29,6 +34,79 @@
 
 
 services:
+  # ===========================================================================
+  #  rabbitmq —— Spring Cloud Bus 的訊息中介
+  # ===========================================================================
+  #  四個 Spring 服務都連它（pom 都有 spring-cloud-starter-bus-amqp），
+  #  所以它必須「先起來而且就緒」，其他服務才連得上。
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"      # AMQP，服務連線用
+      - "15672:15672"    # 管理介面 http://localhost:15672 （guest/guest）
+    healthcheck:
+      # rabbitmq-diagnostics 是 image 內建的工具，不用自己裝
+      test: [ "CMD", "rabbitmq-diagnostics", "check_port_connectivity" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s     # 前 30 秒失敗不算數（RabbitMQ 啟動要時間）
+    # rabbitmq 不是 Spring 服務，只需要共用的資源限制那一層
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ===========================================================================
+  #  configserver —— 設定中心（git 後端 + Bus 廣播 + webhook monitor）
+  # ===========================================================================
+  configserver:
+    # image 由 Jib 建（設定在 configserver/pom.xml，跟 card 同一套做法）：
+    #   cd configserver && ./mvnw compile jib:dockerBuild
+    # 基底是 eclipse-temurin:25-jre-alpine，內建 BusyBox wget —— 下面的 healthcheck
+    # 需要它。（loan 的 Buildpacks image 沒有 wget/sh，所以它無法做 healthcheck。）
+    image: anthonysk/configserver:0.0.1-SNAPSHOT
+    container_name: configserver-ms
+    ports:
+      - "8071:8071"
+
+    # JVM 參數、SPRING_RABBITMQ_HOST、記憶體上限、depends_on rabbitmq
+    # 都來自 common.yml。configserver 不用 microservice-base 那層 ——
+    # 它的設定來自自己的 application.yaml，不向 Config Server 拿。
+    extends:
+      file: common.yml
+      service: configserver-base
+
+    environment:
+      # ⚠ 只有 configserver 需要的：設定值加密的金鑰，從專案根目錄的 .env 讀。
+      #   :? 語法 = 沒設就讓 docker compose 直接失敗並印出這段訊息。
+      #   為什麼要 fail fast：configyml/*.yml 裡的 email 是 {cipher} 密文，
+      #   沒有金鑰的話 configserver 解不開，會把它變成
+      #   invalid.account.contact-details.email = <n/a>，服務拿到 null ——
+      #   那種「啟動成功但資料錯」比啟動失敗難查得多。
+      ENCRYPT_KEY: ${ENCRYPT_KEY:?請先複製 .env.example 成 .env 並填入 ENCRYPT_KEY}
+
+    healthcheck:
+      # 用 wget（alpine 的 BusyBox 內建），image 裡沒有 curl
+      #
+      # 🔑 為什麼是 127.0.0.1 而不是服務名 configserver？
+      #    healthcheck 指令是「在容器裡面」執行的，所以要打的是容器自己。
+      #    寫服務名也會通（DNS 解析後繞出去再繞回來），但沒必要而且比較慢。
+      #    也因為走的是容器內部，這個檢查跟上面 ports: 有沒有對外映射完全無關。
+      #
+      # ⚠ 用 127.0.0.1 而不是 localhost：image 的 /etc/hosts 裡 localhost 同時對應
+      #   127.0.0.1 和 ::1，BusyBox wget 挑到哪一個不保證。多數情況兩者都通，
+      #   但 healthcheck 失敗會卡住整條 depends_on 依賴鏈，用確定的位址比較安全。
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8071/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # ⚠ start_period 給到 60s：configserver 設了 clone-on-start: true，
+      #   啟動時要先 clone 整個 GitHub repo（含所有 Java 程式碼），比其他服務慢。
+      #   給太短會一直被判 unhealthy，下面三個服務就永遠等不到而卡住。
+      start_period: 60s
+
   # ===========================================================================
   #  account —— 帳戶與客戶資料
   # ===========================================================================
@@ -61,28 +139,25 @@ services:
     #  ⚠ 這行「只影響主機端」。容器之間互相呼叫走內部網路，不需要 ports，
     #    而且用的永遠是右邊那個容器 port。
 
-    environment:
-      # Dockerfile 裡已經有 ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb，
-      # 這裡不覆寫就沿用它 —— 記憶體資料庫，容器一關資料就沒了。
-      # 要改成「資料存得住」請看檔案最下面的〈進階〉。
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-      # ↑ 沒有這行的話，JVM 預設只拿記憶體上限的 25% 當 heap
-      #   → 700m 限制下 heap 只有 175MB。設 75% 拉到約 525MB，
-      #     剩下留給 metaspace、code cache、thread stack。
+    # JVM 參數、SPRING_RABBITMQ_HOST、SPRING_CONFIG_IMPORT、記憶體上限、
+    # depends_on（rabbitmq + configserver）全部來自 common.yml
+    extends:
+      file: common.yml
+      service: microservice-base
 
-    deploy:
-      resources:
-        limits:
-          memory: 700m
-    # = docker run --memory=700m
-    #
-    # ⚠ deploy 原本是 Docker Swarm 專用欄位，舊版 docker-compose（v1，有橫線）
-    #   會直接忽略它。現在的 docker compose（v2，空格）才會確實套用。
-    #   等價的簡單寫法是 mem_limit: 700m。
-    #
-    # ⚠ 超過上限「不會」拋 OutOfMemoryError，是被 Linux OOM killer 直接砍掉，
-    #   docker ps -a 顯示 exit code 137，log 通常什麼線索都不留。
-    #   三個服務 × 700m = 2.1GB，記得確認 Docker Desktop 的 WSL2 記憶體配額夠。
+    # ⚠ 沒有覆寫 SPRING_DATASOURCE_URL，所以沿用 image 內建的
+    #   ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb —— 記憶體資料庫，
+    #   容器一關資料就沒了。要改成「資料存得住」請看檔案最下面的〈進階〉。
+
+    healthcheck:
+      # 在容器內部執行，所以打 127.0.0.1（理由見 configserver 那段）
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    # 記憶體上限來自 common.yml 的 resource-limits（透過 microservice-base 繼承）
 
   # ===========================================================================
   #  loan —— 貸款資料
@@ -96,12 +171,16 @@ services:
     container_name: loan-ms
     ports:
       - "8090:8090"
-    environment:
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-    deploy:
-      resources:
-        limits:
-          memory: 700m
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    # ⚠ loan 刻意「沒有」healthcheck。
+    #   它的 image 是 Buildpacks（Paketo）建的，屬於 distroless 風格：
+    #   實測過 /bin/sh、/usr/bin/wget、/usr/bin/curl 全都不存在，
+    #   寫任何 healthcheck 指令都會失敗 → 容器永遠是 unhealthy。
+    #   沒有任何服務 depends_on loan，所以不做 healthcheck 沒有影響；
+    #   要判斷它好了沒，從主機打 http://localhost:8090/actuator/health。
 
   # ===========================================================================
   #  card —— 信用卡資料
@@ -113,12 +192,17 @@ services:
     container_name: card-ms
     ports:
       - "9000:9000"
-    environment:
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-    deploy:
-      resources:
-        limits:
-          memory: 700m
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    healthcheck:
+      # Jib 的基底是 eclipse-temurin:25-jre-alpine，跟 account 一樣有 BusyBox wget
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
 
 # =============================================================================
@@ -132,8 +216,18 @@ services:
 #
 #      http://account:8080      http://loan:8090      http://card:9000
 #
-#  這正是「三次 docker run」做不到的事 —— 那樣起的容器會被丟進 Docker 內建的
-#  預設 bridge 網路，而預設 bridge「不提供容器名稱解析」，只能用會變動的 IP。
+#  ⚠ 這不是 compose 獨有的能力，手動也做得到，只是要自己來：
+#        docker network create springboot-microservices_default
+#        docker run -d --name account-ms --network springboot-microservices_default ...
+#        （三個都要加 --network，收工時還要自己 docker network rm）
+#    關鍵在「有沒有自訂網路」，不在「用不用 compose」。
+#
+#    真正做不到的只有「不指定 --network 的 docker run」—— 那會落到 Docker 內建的
+#    預設 bridge 網路，而預設 bridge「不提供容器名稱解析」，只能用會變動的 IP。
+#
+#  compose 真正多給的、手動很難複製的是另外兩件事：
+#    1. depends_on + healthcheck 條件（手動要自己寫輪詢 /actuator/health 的等待腳本）
+#    2. 設定進 git，可 review、可追溯（docker run 的參數只存在命令歷史裡）
 #
 #  ⚠ 名字只在「容器世界」有效。你從 Windows 瀏覽器打 http://account:8080 是不通的，
 #    主機端要用 http://localhost:8080 —— 走的是上面 ports: 開的那道門。
@@ -153,9 +247,14 @@ services:
 #  常用指令（PowerShell，在專案根目錄執行）
 #
 #  ── 先建 image（本檔案不負責建，改過程式碼一定要自己重跑對應那行）──────────
-#  cd account; docker build -t anthonysk/account:0.0.1-SNAPSHOT .
-#  cd loan;    ./mvnw spring-boot:build-image
-#  cd card;    ./mvnw compile jib:dockerBuild
+#  cd configserver; ./mvnw compile jib:dockerBuild        （Jib）
+#  cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
+#  cd loan;         ./mvnw spring-boot:build-image        （Buildpacks）
+#  cd card;         ./mvnw compile jib:dockerBuild        （Jib）
+#  （rabbitmq 用官方 image，不用自己建）
+#
+#  ⚠ 本機如果還有 mvnw / IntelliJ 跑著同樣的服務，port 會衝突（8071/8080/8090/9000
+#    /5672）。docker compose up 之前先把本機那些停掉。
 #
 #  ── 推到 GitHub Packages（可選，跟跑起來無關）────────────────────────────
 #  .\push-all.ps1                # 三個一起 tag + push 到 ghcr.io/tonysk0210

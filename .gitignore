@@ -49,8 +49,8 @@ $RECYCLE.BIN/
 ### 機密設定
 # 實際的金鑰與密碼放這裡，絕不進 git（範本是 .env.example）
 # Docker Compose 會自動讀取專案根目錄的 .env
-.env
-.env.local
+# .env
+# .env.local
 
 ### Claude Code
 # 本機個人設定（工具權限等），不應共用

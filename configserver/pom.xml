@@ -73,6 +73,64 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+
+            <!--
+                Jib —— 建 container image，不需要 Dockerfile（跟 card 同一套做法）。
+
+                指令（⚠ 一定要加 compile，Jib 不會自己編譯）：
+                    cd configserver
+                    ./mvnw compile jib:dockerBuild     建到本機 Docker
+                    ./mvnw compile jib:build           直接推 registry（不需要 Docker）
+
+                漏掉 compile 的錯誤訊息是
+                    Obtaining project build output files failed;
+                    make sure you have compiled your project
+            -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <from>
+                        <!--
+                            跟 account / card 用同一個基底，行為才一致。
+                            ⚠ alpine 內建 BusyBox wget 和 sh —— compose 的 healthcheck 需要 wget，
+                              除錯時需要 sh。（loan 的 Buildpacks image 兩者都沒有，
+                              所以它無法做 healthcheck。）
+
+                            ⚠ docker:// 前綴 = 直接用本機 Docker 已有的 image，不去 registry 抓。
+                              前提：docker pull eclipse-temurin:25-jre-alpine
+                              不加前綴時 Jib 會去 Docker Hub 抓 manifest，而 Docker Desktop 的
+                              憑證存放區若有無效登入資訊，會失敗並誤報 incorrect username or password。
+                        -->
+                        <image>docker://eclipse-temurin:25-jre-alpine</image>
+                    </from>
+                    <to>
+                        <!-- 變數展開後 = anthonysk/configserver:0.0.1-SNAPSHOT -->
+                        <image>anthonysk/${project.artifactId}:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <!-- 等同 Dockerfile 的 EXPOSE。8071，不是 8080（那是 account 的） -->
+                            <port>8071</port>
+                        </ports>
+                        <!--
+                            不設 <environment>。configserver 需要的兩個變數都由
+                            compose.yml 在執行期提供，不該寫進 image：
+                              ENCRYPT_KEY           機密，來自 .env
+                              SPRING_RABBITMQ_HOST  容器環境才要指向服務名 rabbitmq
+                        -->
+                        <!-- 不要用 root 執行 -->
+                        <user>nobody</user>
+                        <labels>
+                            <org.opencontainers.image.title>configserver</org.opencontainers.image.title>
+                            <org.opencontainers.image.description>Spring Cloud Config Server（git 後端 + Bus 廣播 + webhook monitor）</org.opencontainers.image.description>
+                            <org.opencontainers.image.authors>Tony Shangkuan</org.opencontainers.image.authors>
+                            <org.opencontainers.image.source>https://github.com/tonysk0210/springboot-microservices</org.opencontainers.image.source>
+                        </labels>
+                    </container>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
