@@ -77,20 +77,18 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.0.3</version>
         </dependency>
-        <!-- Config Client —— 啟動時去 Config Server (8071) 拿 config/account.yml
-             （檔名 = spring.application.name），並帶進 @RefreshScope、/actuator/refresh。
-             版本由下方 BOM 決定，不寫 <version>。
-
-             ⚠ 必須在 application.yaml 設 spring.config.import，否則啟動失敗
-               （No spring.config.import property has been defined）：
-                 import: "configserver:http://localhost:8071/"           連不上就失敗
-                 import: "optional:configserver:http://localhost:8071/"  連不上改用本地設定
-               容器裡要把 localhost 換成服務名 configserver。 -->
+        <!-- Config Client —— 啟動時向 Config Server 拿 configyml/account.yml
+             （檔名 = spring.application.name），並帶進 /actuator/refresh。
+             ⚠ 必須搭配 application.yaml 的 spring.config.import，否則啟動失敗
+               （No spring.config.import property has been defined）。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
-        <!-- RabbitMQ 版（這個場景最常用） -->
+        <!-- Spring Cloud Bus + RabbitMQ binder —— 提供 /actuator/busrefresh，
+             打一次讓所有服務重抓設定。
+             ⚠ 四個服務都要加，少一個那個服務收不到廣播且沒有錯誤訊息。
+             ⚠ 需要 RabbitMQ 在跑，否則啟動時連不上 broker。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>

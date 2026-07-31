@@ -77,20 +77,18 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.0.3</version>
         </dependency>
-        <!-- Config Client —— 啟動時去 Config Server (8071) 拿 config/loan.yml
-             （檔名 = spring.application.name），並帶進 @RefreshScope、/actuator/refresh。
-             版本由下方 BOM 決定，不寫 <version>。
-
-             ⚠ 必須在 application.yaml 設 spring.config.import，否則啟動失敗
-               （No spring.config.import property has been defined）：
-                 import: "configserver:http://localhost:8071/"           連不上就失敗
-                 import: "optional:configserver:http://localhost:8071/"  連不上改用本地設定
-               容器裡要把 localhost 換成服務名 configserver。 -->
+        <!-- Config Client —— 啟動時向 Config Server 拿 configyml/loan.yml
+             （檔名 = spring.application.name），並帶進 /actuator/refresh。
+             ⚠ 必須搭配 application.yaml 的 spring.config.import，否則啟動失敗
+               （No spring.config.import property has been defined）。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
-        <!-- RabbitMQ 版（這個場景最常用） -->
+        <!-- Spring Cloud Bus + RabbitMQ binder —— 提供 /actuator/busrefresh，
+             打一次讓所有服務重抓設定。
+             ⚠ 四個服務都要加，少一個那個服務收不到廣播且沒有錯誤訊息。
+             ⚠ 需要 RabbitMQ 在跑，否則啟動時連不上 broker。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
@@ -141,99 +139,36 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <!--
-                        ===================================================================
-                         用 Buildpacks 建 container image 的設定
-                        ===================================================================
+                        Buildpacks 建 image（不必寫 Dockerfile）：
+                            ./mvnw spring-boot:build-image
+                        這段只影響該指令；docker build 走 Dockerfile，不會讀 pom.xml。
 
-                        ⚠ 這一段「只」影響 mvn spring-boot:build-image，與 Dockerfile 無關。
-                          docker build 走的是 Dockerfile，完全不會讀 pom.xml。
-                          兩者是兩套獨立的建置方式：
-                            Buildpacks  → 不必寫 Dockerfile，自動決定基底 image、分層、
-                                          非 root 使用者、JVM 記憶體計算（loan 用這個方式）
-                            Dockerfile  → 自己掌控每個細節（account 用這個方式）
+                        <env> 的兩種前綴意義完全不同：
+                            BP_*   建置期設定，不會進入容器環境
+                            BPE_*  執行期環境變數，等同 Dockerfile 的 ENV
+                                   BPE_DEFAULT_* 是預設值，可被 docker run -e 覆蓋
 
-                        ===================================================================
-                         <name> image 名稱
-                        ===================================================================
-                        兩個 Maven 變數會自動展開，升版時只要改上方的 <version> 一處：
-                            ${project.artifactId} → loan
-                            ${project.version}    → 0.0.1-SNAPSHOT
-                            結果：anthonysk/loan:0.0.1-SNAPSHOT
+                        ⚠ docker image inspect 的 Config.Env「看不到」BPE_*。
+                          Buildpacks 把它寫成 /layers/ 裡的啟動腳本，由 CNB launcher
+                          在啟動時載入，不在 image 的靜態 metadata 裡。
+                          驗證要看 log：docker logs loan | Select-String "jdbc:h2"
 
-                        anthonysk 是 Docker Hub 的命名空間，必須是真實帳號才能 docker push。
-                        只在本機跑的話名稱可以隨意，不影響功能。
+                        ⚠ run image 是 distroless 風格 —— 實測連 /bin/sh、wget、curl
+                          都沒有。所以 docker exec 進不去，compose 也無法做 healthcheck。
 
-                        ===================================================================
-                         <env> 兩種前綴意義完全不同
-                        ===================================================================
-                        BP_*   建置期設定，告訴 buildpack「怎麼建」，不會進入容器環境
-                               例：<BP_JVM_VERSION>25</BP_JVM_VERSION>
-                        BPE_*  執行期環境變數，等同 Dockerfile 的 ENV
-                               BPE_DEFAULT_XXX 是「預設值」，可被 docker run 的 e 參數覆蓋
-
-                        這裡把資料庫預設成記憶體模式，語意明確表示「容器內資料不持久」，
-                        避免資料悄悄寫進 /home/cnb/h2db/ 然後隨容器重建消失。
-                        （application.yaml 的預設是 jdbc:h2:file:~/h2db/loandb）
-
-                        ⚠ docker image inspect 的 Config.Env 欄位「看不到」BPE_* 設定！
-                          因為 Buildpacks 是把它寫成 /layers/ 裡的啟動腳本，由 CNB launcher
-                          在容器啟動時才載入，不在 image 的靜態 metadata 裡。
-                          正確驗證方式是跑起來看 log：
-                              docker logs loan | Select-String "jdbc:h2"
-                              → 應顯示 url=jdbc:h2:mem:loandb
-
-                        ===================================================================
-                         操作指令
-                        ===================================================================
-                        建 image（需要 Docker 在執行中；第一次會下載約 1~2 GB 的 builder）：
-                            cd D:\Fork\github\springboot-microservices\loan
-                            .\mvnw spring-boot:build-image
-
-                        跑起來（加 d 參數背景執行、name 參數命名為 loan）：
-                            docker run -d (name=loan) -p 8090:8090 anthonysk/loan:0.0.1-SNAPSHOT
-
-                        ⚠ 上面的 (name=loan) 是因為 XML 註解不能出現「連續兩個」減號，
-                          無法寫出長參數的前綴。實際輸入時 name 前面要加兩個減號。
-                          （單一減號完全合法，所以 0.0.1-SNAPSHOT、swagger-ui 都正常寫。）
-
-                        ⚠ port 映射是 8090:8090，不是 8090:8080！
-                          因為 loan 的 server.port 設定是 8090，容器內 App 聽的就是 8090。
-                          寫成 8090:8080 的話容器會正常啟動，但永遠連不上，且沒有錯誤訊息。
-
-                        驗證：
-                            curl http://localhost:8090/actuator/health
-                            → {"groups":["liveness","readiness"],"status":"UP"}
-                            瀏覽器：http://localhost:8090/swagger-ui/index.html
-
-                        收工：
-                            docker rm -f loan
-
-                        ⚠ Paketo 的 run image 是 distroless 風格，「沒有 shell」，
-                          所以 docker exec loan sh 會失敗，除錯只能靠 docker logs。
+                        ⚠ Paketo 的記憶體計算器會自己算 -Xmx 並蓋掉 MaxRAMPercentage。
+                          700m 上限下預設只分到 46MB heap，啟動就 OOM；
+                          compose.yml 用 BPL_JVM_THREAD_COUNT 調低執行緒假設來修正。
                     -->
                     <image>
                         <name>anthonysk/${project.artifactId}:${project.version}</name>
                         <env>
                             <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
-                            <!--
-                                BP_OCI_* 會被轉成 OCI 標準的 image label（純 metadata）。
-                                查看方式：docker image inspect 的 Config.Labels 欄位
-
-                                推到 ghcr.io 時，GitHub 的 package 頁面會用這些 label 顯示
-                                描述，並「嘗試」把 image 連結到 source 指向的 repo。
-
-                                🔑 為什麼 Buildpacks 只設 label 就夠，account 卻還要額外的
-                                   annotation？因為 Buildpacks 產出的是舊的 Docker v2
-                                   manifest，該格式不支援 annotation，GitHub 只能退回去讀
-                                   config label。而 account 用 buildx 產出的是 OCI manifest，
-                                   GitHub 會優先找 manifest annotation，找不到就空白
-                                   （不會退回讀 label）。
-                                   → 差異來自 manifest 格式，不是設定寫錯。
-
-                                ⚠ 自動連結 repo「不保證成功」。官方文件指出命令列推送只有用
-                                  GitHub Actions + GITHUB_TOKEN 才保證自動連結；手動推送若
-                                  沒連上，要到 Package settings 手動 Connect repository。
-                            -->
+                            <!-- BP_OCI_* → OCI image label（純 metadata），ghcr.io 的
+                                 package 頁面靠它顯示描述。
+                                 🔑 Buildpacks 產的是 Docker v2 manifest，GitHub 讀得到
+                                    config label；account 用 buildx 產 OCI manifest，
+                                    GitHub 只讀 manifest annotation，所以那邊要額外設定。 -->
                             <BP_OCI_TITLE>loan-service</BP_OCI_TITLE>
                             <BP_OCI_DESCRIPTION>貸款資料的 REST API</BP_OCI_DESCRIPTION>
                             <BP_OCI_AUTHORS>Tony Shangkuan</BP_OCI_AUTHORS>
