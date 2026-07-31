@@ -35,15 +35,32 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- Config Server 本體 —— 提供 /{application}/{profile} 端點與 git/native 後端，
+             以及 /encrypt、/decrypt 和 {cipher} 自動解密。
+             ⚠ 光加依賴不夠，主類別要有 @EnableConfigServer。
+             ⚠ 它連帶帶進 config-client，所以 configserver 也會嘗試 refresh 自己
+               （見 application.yaml 的 spring.cloud.bus.refresh.enabled）。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-server</artifactId>
         </dependency>
-        <!-- RabbitMQ 版（這個場景最常用） -->
+        <!-- Spring Cloud Bus + RabbitMQ binder。
+             configserver 需要它是為了「發送」—— 下面的 monitor 收到 webhook 後，
+             要靠 Bus 才能把 refresh 事件廣播出去（不是為了接收）。
+             ⚠ 需要 RabbitMQ 在跑，否則啟動時會無限重連。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
+        <!-- Config Monitor —— 提供 POST /monitor 接收 git webhook：解析 payload，
+             把 configyml/account.yml 對應成 account，經 Bus 只通知有變的服務。
+             （/actuator/busrefresh 則是無條件通知全部。）
+             ⚠ 一般 @RestController，不在 /actuator 底下，不用加進 exposure.include。
+             ⚠ POST only；預設不驗證 webhook secret，對外開放要加保護。
+             本機測試（GitHub 連不到 localhost）：
+               Invoke-RestMethod http://localhost:8071/monitor -Method Post `
+                 -Headers @{"X-Github-Event"="push"} -ContentType "application/json" `
+                 -Body '{"commits":[{"modified":["configyml/account.yml"]}]}' -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-monitor</artifactId>
@@ -74,52 +91,33 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
 
-            <!--
-                Jib —— 建 container image，不需要 Dockerfile（跟 card 同一套做法）。
-
-                指令（⚠ 一定要加 compile，Jib 不會自己編譯）：
-                    cd configserver
-                    ./mvnw compile jib:dockerBuild     建到本機 Docker
-                    ./mvnw compile jib:build           直接推 registry（不需要 Docker）
-
-                漏掉 compile 的錯誤訊息是
-                    Obtaining project build output files failed;
-                    make sure you have compiled your project
-            -->
+            <!-- Jib 建 image（不用寫 Dockerfile，跟 card 同一套做法）：
+                     ./mvnw compile jib:dockerBuild
+                 ⚠ compile 不能省，Jib 不會自己編譯。漏掉的錯誤訊息是
+                   Obtaining project build output files failed。 -->
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
                     <from>
-                        <!--
-                            跟 account / card 用同一個基底，行為才一致。
-                            ⚠ alpine 內建 BusyBox wget 和 sh —— compose 的 healthcheck 需要 wget，
-                              除錯時需要 sh。（loan 的 Buildpacks image 兩者都沒有，
-                              所以它無法做 healthcheck。）
-
-                            ⚠ docker:// 前綴 = 直接用本機 Docker 已有的 image，不去 registry 抓。
-                              前提：docker pull eclipse-temurin:25-jre-alpine
-                              不加前綴時 Jib 會去 Docker Hub 抓 manifest，而 Docker Desktop 的
-                              憑證存放區若有無效登入資訊，會失敗並誤報 incorrect username or password。
-                        -->
+                        <!-- 跟 account / card 同一個基底：alpine 有 wget（compose 的
+                             healthcheck 要用）和 sh（進去除錯要用）。
+                             docker:// = 用本機已經有的，不去網路抓（理由見 card/pom.xml）。
+                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
                     <to>
-                        <!-- 變數展開後 = anthonysk/configserver:0.0.1-SNAPSHOT -->
                         <image>anthonysk/${project.artifactId}:${project.version}</image>
                     </to>
                     <container>
                         <ports>
-                            <!-- 等同 Dockerfile 的 EXPOSE。8071，不是 8080（那是 account 的） -->
+                            <!-- 等同 Dockerfile 的 EXPOSE -->
                             <port>8071</port>
                         </ports>
-                        <!--
-                            不設 <environment>。configserver 需要的兩個變數都由
-                            compose.yml 在執行期提供，不該寫進 image：
-                              ENCRYPT_KEY           機密，來自 .env
-                              SPRING_RABBITMQ_HOST  容器環境才要指向服務名 rabbitmq
-                        -->
+                        <!-- 刻意不設 <environment>：ENCRYPT_KEY（機密）和
+                             SPRING_RABBITMQ_HOST（只有容器裡才要指向服務名）都由
+                             compose 在執行期提供，不該寫死進 image。 -->
                         <!-- 不要用 root 執行 -->
                         <user>nobody</user>
                         <labels>

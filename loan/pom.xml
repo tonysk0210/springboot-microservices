@@ -139,36 +139,42 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <!--
-                        Buildpacks 建 image（不必寫 Dockerfile）：
-                            ./mvnw spring-boot:build-image
-                        這段只影響該指令；docker build 走 Dockerfile，不會讀 pom.xml。
+                        Buildpacks：不用自己寫 Dockerfile，Maven 幫你把 image 建好。
+                            指令：./mvnw spring-boot:build-image
+                        這一段設定只有那個指令會讀。docker build 走的是 Dockerfile，
+                        完全不會看 pom.xml。
 
-                        <env> 的兩種前綴意義完全不同：
-                            BP_*   建置期設定，不會進入容器環境
-                            BPE_*  執行期環境變數，等同 Dockerfile 的 ENV
-                                   BPE_DEFAULT_* 是預設值，可被 docker run -e 覆蓋
+                        下面 env 裡的兩種前綴，意思差很多：
+                            BP_*   給「建 image 的時候」用，建完就沒了，容器裡看不到
+                            BPE_*  給「容器跑起來的時候」用，等於 Dockerfile 的 ENV
+                                   名字帶 DEFAULT 的（BPE_DEFAULT_XXX）表示只是預設值，
+                                   docker run -e 或 compose 的 environment 都蓋得掉
 
-                        ⚠ docker image inspect 的 Config.Env「看不到」BPE_*。
-                          Buildpacks 把它寫成 /layers/ 裡的啟動腳本，由 CNB launcher
-                          在啟動時載入，不在 image 的靜態 metadata 裡。
-                          驗證要看 log：docker logs loan | Select-String "jdbc:h2"
+                        ⚠ 用 docker image inspect 看不到 BPE_* 設的變數，很容易以為沒生效。
+                          它不是存在 image 的 metadata 裡，而是被寫成一段啟動腳本，
+                          容器跑起來才載入。想確認有沒有生效要看 log：
+                              docker logs loan | Select-String "jdbc:h2"
 
-                        ⚠ run image 是 distroless 風格 —— 實測連 /bin/sh、wget、curl
-                          都沒有。所以 docker exec 進不去，compose 也無法做 healthcheck。
+                        ⚠ 這種 image 裡面幾乎沒有任何工具 —— 實測連 sh、wget、curl 都找不到。
+                          後果有兩個：docker exec 進不去除錯，compose 也做不了 healthcheck。
 
-                        ⚠ Paketo 的記憶體計算器會自己算 -Xmx 並蓋掉 MaxRAMPercentage。
-                          700m 上限下預設只分到 46MB heap，啟動就 OOM；
-                          compose.yml 用 BPL_JVM_THREAD_COUNT 調低執行緒假設來修正。
+                        ⚠ Paketo 會自己算 JVM 該用多少記憶體，而且會蓋掉我們設的
+                          MaxRAMPercentage。在 700m 的上限下它只分 46MB 給 heap，
+                          服務啟動到一半就會 OOM 死掉。
+                          解法寫在 compose.yml：調低 BPL_JVM_THREAD_COUNT，把記憶體讓回給 heap。
                     -->
                     <image>
                         <name>anthonysk/${project.artifactId}:${project.version}</name>
                         <env>
                             <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
-                            <!-- BP_OCI_* → OCI image label（純 metadata），ghcr.io 的
-                                 package 頁面靠它顯示描述。
-                                 🔑 Buildpacks 產的是 Docker v2 manifest，GitHub 讀得到
-                                    config label；account 用 buildx 產 OCI manifest，
-                                    GitHub 只讀 manifest annotation，所以那邊要額外設定。 -->
+                            <!-- BP_OCI_* 會變成 image 上的標籤（label），純粹是給人看的資訊，
+                                 不影響程式執行。推到 ghcr.io 之後，GitHub 的 package 頁面
+                                 就是靠它顯示描述。
+
+                                 🔑 為什麼 account 那邊還要多寫一串 annotation 參數？
+                                    因為兩者產出的 image 格式不一樣：Buildpacks 產的是舊格式，
+                                    GitHub 讀得懂上面的 label；account 用 buildx 產的是新格式，
+                                    GitHub 只認 annotation，不會退回去讀 label。 -->
                             <BP_OCI_TITLE>loan-service</BP_OCI_TITLE>
                             <BP_OCI_DESCRIPTION>貸款資料的 REST API</BP_OCI_DESCRIPTION>
                             <BP_OCI_AUTHORS>Tony Shangkuan</BP_OCI_AUTHORS>

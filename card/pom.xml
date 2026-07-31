@@ -77,20 +77,18 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- Config Client —— 啟動時去 Config Server (8071) 拿 config/card.yml
-             （檔名 = spring.application.name），並帶進 @RefreshScope、/actuator/refresh。
-             版本由下方 BOM 決定，不寫 <version>。
-
-             ⚠ 必須在 application.yaml 設 spring.config.import，否則啟動失敗
-               （No spring.config.import property has been defined）：
-                 import: "configserver:http://localhost:8071/"           連不上就失敗
-                 import: "optional:configserver:http://localhost:8071/"  連不上改用本地設定
-               容器裡要把 localhost 換成服務名 configserver。 -->
+        <!-- Config Client —— 啟動時向 Config Server 拿 configyml/card.yml
+             （檔名 = spring.application.name），並帶進 /actuator/refresh。
+             ⚠ 必須搭配 application.yaml 的 spring.config.import，否則啟動失敗
+               （No spring.config.import property has been defined）。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
-        <!-- RabbitMQ 版（這個場景最常用） -->
+        <!-- Spring Cloud Bus + RabbitMQ binder —— 提供 /actuator/busrefresh，
+             打一次讓所有服務重抓設定。
+             ⚠ 四個服務都要加，少一個那個服務收不到廣播且沒有錯誤訊息。
+             ⚠ 需要 RabbitMQ 在跑，否則啟動時連不上 broker。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
@@ -154,88 +152,39 @@
                 <version>3.5.2</version>
                 <configuration>
                     <!--
-                        ===================================================================
-                         Jib：Google 的容器建置工具（card 模組用這個方式）
-                        ===================================================================
+                        Jib 建 image（不必寫 Dockerfile）：
+                            ./mvnw compile jib:dockerBuild   建到本機 Docker
+                            ./mvnw compile jib:build         直接推 registry（不需要 Docker）
+                            ./mvnw compile jib:buildTar      產生 tar 檔
 
-                        三個模組刻意用三種不同的建 image 方式，方便對照：
-                            account → Dockerfile（自己寫，完全掌控）
-                            loan    → Buildpacks（mvn spring-boot:build-image）
-                            card    → Jib（這個）
+                        jib:build 不經過 Docker daemon —— 它在 JVM 裡組出 image 的層直接
+                        上傳，所以 CI 環境不必跑 Docker in Docker。
 
-                        Jib 最大特色：jib:build 可以「不需要 Docker」直接推到 registry，
-                        因為它在 JVM 裡直接組出 image 的層並上傳，繞過 Docker daemon。
-                        這在 CI 環境很有用（不必在 CI 裡跑 Docker in Docker）。
+                        ⚠ compile 不能省，Jib 不會自己編譯（spring-boot:build-image 會）。
+                          漏掉的錯誤訊息是 Obtaining project build output files failed。
 
-                        ===================================================================
-                         三個 goal 的差別
-                        ===================================================================
-                        mvn jib:dockerBuild   建到本機 Docker（需要 Docker 在跑）
-                        mvn jib:build         直接推到 registry（不需要 Docker，要先登入）
-                        mvn jib:buildTar      產生 tar 檔（不需要 Docker）
+                        ⚠ <to> 的名稱要帶命名空間。只寫 myimage 會被解析成
+                          docker.io/library/myimage:latest，library 是 Docker Hub 官方
+                          命名空間，沒有權限 push。
 
-                        ⚠ Jib「不會自動編譯」，指令前面一定要加 compile：
-                              mvnw compile jib:dockerBuild
-                          漏掉會失敗，訊息是
-                              Obtaining project build output files failed;
-                              make sure you have compiled your project
-                          （spring-boot:build-image 會自動跑 package，Jib 不會。）
-
-                        ===================================================================
-                         各區塊的作用
-                        ===================================================================
-                        <from>       基底 image。Jib 會依專案 Java 版本自動挑，但 3.5.2
-                                     不一定認得 Java 25，所以明確指定；同時與 account 的
-                                     Dockerfile 使用同一個基底，兩者行為才一致。
-
-                        <to>         產出的 image 名稱，變數會自動展開：
-                                       ${project.artifactId} → card
-                                       ${project.version}    → 0.0.1-SNAPSHOT
-                                     ⚠ 原本只寫 myimage 是不能用的，因為會被解析成
-                                       docker.io/library/myimage:latest，而 library 是
-                                       Docker Hub 官方命名空間，沒有權限 push。
-
-                        <container>  等同 Dockerfile 的 EXPOSE / ENV / USER：
-                                       ports       → EXPOSE
-                                       environment → ENV（預設用記憶體資料庫，語意明確
-                                                     表示容器內資料不持久）
-                                       user        → USER（避免以 root 執行容器）
-
-                        ===================================================================
-                         操作指令
-                        ===================================================================
-                        建 image：
-                            cd D:\Fork\github\springboot-microservices\card
-                            .\mvnw compile jib:dockerBuild
-
-                        跑起來（d 參數背景執行、name 參數命名為 card）：
-                            docker run -d (name=card) -p 9000:9000 anthonysk/card:0.0.1-SNAPSHOT
-
-                        check db：docker logs card | Select-String "jdbc:h2"
-
-                        ⚠ port 映射是 9000:9000，不是 9000:8080！
-                          因為 card 的 server.port 設定是 9000，容器內 App 聽的就是 9000。
-                          寫錯的話容器會正常啟動，但永遠連不上，且沒有任何錯誤訊息。
-
-                        驗證：
-                            curl http://localhost:9000/actuator/health
-                            瀏覽器：http://localhost:9000/swagger-ui/index.html
-
-                        收工：
-                            docker rm -f card
+                        <container> 等同 Dockerfile 的 EXPOSE / ENV / USER。
                     -->
                     <from>
-                        <!--
-                            docker:// 前綴 = 直接使用「本機 Docker 已有的 image」，
-                            不去 registry 抓，因此不需要 registry 驗證。
+                        <!-- 基底 image。
 
-                            ⚠ 不加這個前綴的話 Jib 會去 Docker Hub 抓 manifest，
-                              而 Docker Desktop 的憑證存放區若有無效登入資訊，
-                              就會失敗並回報 incorrect username or password。
+                             為什麼要自己指定：不寫的話 Jib 會自己猜一個，但 3.5.2 比
+                             Java 25 舊，可能猜錯。而且指定成跟 account 的 Dockerfile
+                             一樣，兩個容器裡的環境才一致（都有 wget，compose 的
+                             healthcheck 才用得了）。
 
-                            前提：本機要先有這個 image
-                                docker pull eclipse-temurin:25-jre-alpine
-                        -->
+                             docker:// 的意思是「用本機 Docker 已經有的那份，不要去網路抓」。
+                             ⚠ 不加這個前綴的話，Jib 會連去 Docker Hub，順便套用 Docker
+                               Desktop 存的登入憑證。那份憑證如果過期了就會失敗，訊息是
+                               incorrect username or password —— 但這個 image 明明是公開的、
+                               根本不用登入，錯誤訊息會害你往帳號密碼的方向查。
+
+                             ⚠ 用 docker:// 的前提是本機真的有這個 image：
+                                 docker pull eclipse-temurin:25-jre-alpine -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
                     <to>
@@ -249,24 +198,11 @@
                             <SPRING_DATASOURCE_URL>jdbc:h2:mem:carddb</SPRING_DATASOURCE_URL>
                         </environment>
                         <user>nobody</user>
-                        <!--
-                            OCI 標準的 image label（純 metadata，不影響程式執行）。
-                            查看方式：docker image inspect 的 Config.Labels 欄位
-
-                            推到 ghcr.io 時，GitHub 的 package 頁面會用這些 label 顯示
-                            描述，並「嘗試」把 image 連結到 source 指向的 repo。
-
-                            🔑 為什麼 Jib 只設 label 就夠，account 卻還要額外的 annotation？
-                               因為 Jib 產出的是舊的 Docker v2 manifest，該格式不支援
-                               annotation，GitHub 只能退回去讀 config label。
-                               而 account 用 buildx 產出的是 OCI manifest，GitHub 會優先
-                               找 manifest annotation，找不到就空白（不會退回讀 label）。
-                               → 差異來自 manifest 格式，不是設定寫錯。
-
-                            ⚠ 自動連結 repo「不保證成功」。官方文件指出命令列推送只有用
-                              GitHub Actions + GITHUB_TOKEN 才保證自動連結；手動推送若沒
-                              連上，要到 Package settings 手動 Connect repository。
-                        -->
+                        <!-- OCI image label（純 metadata），ghcr.io 的 package 頁面靠它
+                             顯示描述。
+                             🔑 Jib 產的是 Docker v2 manifest，GitHub 讀得到 config label；
+                                account 用 buildx 產 OCI manifest，GitHub 只讀 manifest
+                                annotation，所以那邊要額外設定。 -->
                         <labels>
                             <org.opencontainers.image.title>card-service</org.opencontainers.image.title>
                             <org.opencontainers.image.description>卡片資料的 REST API</org.opencontainers.image.description>
