@@ -1,5 +1,5 @@
 ﻿# =============================================================================
-#  push-all.ps1 —— 把本機三個 image 推到 GitHub Packages (ghcr.io)
+#  push-images-to-ghcr.ps1 —— 把本機四個 image 推到 GitHub Packages (ghcr.io)
 # =============================================================================
 #
 #  這個腳本「只負責推」，不負責建。執行前四個 image 必須已經存在本機：
@@ -23,10 +23,10 @@
 #
 #  ---------------------------------------------------------------------------
 #  用法
-#      .\push-all.ps1                      # 推 0.0.1-SNAPSHOT
-#      .\push-all.ps1 -Tag 0.0.2-SNAPSHOT  # 推指定版本
-#      .\push-all.ps1 -Services account    # 只推其中一個（可多個，逗號分隔）
-#      .\push-all.ps1 -WhatIf              # 只印指令不真的執行，先看看會做什麼
+#      .\push-images-to-ghcr.ps1                      # 推 0.0.1-SNAPSHOT
+#      .\push-images-to-ghcr.ps1 -Tag 0.0.2-SNAPSHOT  # 推指定版本
+#      .\push-images-to-ghcr.ps1 -Services account    # 只推其中一個（可多個，逗號分隔）
+#      .\push-images-to-ghcr.ps1 -WhatIf              # 只印指令不真的執行，先看看會做什麼
 #
 #  ⚠ 執行前要先登入一次（同一台機器只需做一次，憑證會存起來）：
 #      docker login ghcr.io -u tonysk0210

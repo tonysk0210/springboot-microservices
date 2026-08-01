@@ -1,119 +1,90 @@
-# 伺服器設定
 server:
-  port: 9000  # 應用程式監聽的埠號
+  port: 9000
 
-# 日誌設定
 logging:
   level:
-    org.hibernate.tool.schema: DEBUG                  # 顯示 Hibernate 結構驗證的詳細日誌
-    org.springframework.jdbc.datasource.init: DEBUG   # 顯示 schema.sql 的執行情況
+    org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
+    org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
+    # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面的 jpa.show-sql）
   pattern:
-    # 自訂 console 輸出格式：時間（綠）、等級（藍）、執行緒（紅）、logger 名稱（黃）及訊息
+    # 時間(綠) 等級(藍) [執行緒](紅) logger名稱(黃) - 訊息
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
 
 spring:
-  # 應用程式識別名稱，可供日誌、Actuator 與服務註冊等整合使用
-  # ⚠ 這個名字同時決定去 Config Server 拿哪個檔案：card → config/card.yml
+  # ⚠ 這個名字決定去 Config Server 拿哪個檔案：card → configyml/card.yml
+  #   對不上時 Config Server 回「200 + 空設定」而不是 404，服務照常啟動但拿到 null。
   application:
     name: card
 
-  # 啟動時去 Config Server 抓設定，抓回來的內容疊在「本檔案之上」
-  # （同名 key 遠端贏；但環境變數又贏過遠端，所以 compose 的 environment: 仍可當除錯後門）
+  # 啟動時去 Config Server 抓設定，疊在本檔案之上（同名 key 遠端贏；
+  # 但環境變數又贏過遠端，所以 compose 的 environment: 可以當除錯後門）。
   #
-  # optional: 前綴 = 抓不到也照樣啟動，退回用本檔案的值。
-  #   本機開發方便：不必為了跑 card 而先開 configserver。
-  #   拿掉 optional: → Config Server 沒開就啟動失敗，正式環境通常要這樣，
-  #   免得帶著錯誤（本地舊的）設定上線而不自知。
-  #
-  # ⚠ 容器環境要把 localhost 換成服務名，容器裡的 localhost 指的是容器自己：
+  # optional: = 抓不到也照樣啟動，退回用本檔案的值 —— 本機想單獨跑 card 時方便。
+  # ⚠ 容器裡由 compose 覆寫成「不帶 optional:」的版本，而且 localhost 換成服務名：
   #     SPRING_CONFIG_IMPORT: "configserver:http://configserver:8071/"
   config:
     import: "optional:configserver:http://localhost:8071/"
 
-  # RabbitMQ 連線 —— Spring Cloud Bus 靠它把 refresh 事件廣播給所有服務
-  #
-  # 🔑 這四行其實可以全部刪掉。Spring Boot 的預設值剛好就是本機 RabbitMQ 的
-  #    預設值（localhost / 5672 / guest / guest），不寫也會通。
-  #    刻意寫出來的理由有兩個：
-  #      1. 讓「這個服務依賴 RabbitMQ」在設定檔裡看得見，而不是藏在預設值裡
-  #      2. 容器化時只要改 host 一行，不必先去查預設值是什麼
-  #
-  # ⚠ 容器環境要改成服務名（容器裡的 localhost 指的是容器自己）：
-  #      SPRING_RABBITMQ_HOST: rabbitmq
-  #
-  # ⚠ RabbitMQ 沒跑起來的話，服務啟動會直接失敗（連不上 broker）：
-  #      docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
-  #    管理介面 http://localhost:15672（guest/guest）→ Exchanges 分頁可以看到
-  #    springCloudBus 這個 fanout exchange，以及各服務綁在上面的 queue。
-  #
-  # ⚠ guest 帳號只適合本機練習，正式環境必須另建使用者。
-  #    若容器之間連線出現 ACCESS_REFUSED，就是 guest 被限制只能從 loopback 連線，
-  #    這時就得建一個專用帳號。
+  # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
+  # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
+  #    寫出來只是讓依賴關係看得見，以及容器化時知道要改哪一行。
+  # ⚠ 容器裡由 compose 覆寫：SPRING_RABBITMQ_HOST: rabbitmq
+  # ⚠ RabbitMQ 沒開時服務仍會啟動，但會在背景無限重連，而且收不到 Bus 廣播。
+  # ⚠ guest 只適合本機。容器間連線若出現 ACCESS_REFUSED，就是 guest 被限制
+  #   只能從 loopback 連，得另建帳號。
   rabbitmq:
     host: localhost
     port: 5672
     username: guest
     password: guest
 
-  # 資料來源設定（H2 檔案模式；資料保留於磁碟，AUTO_SERVER 允許多個程序連線）
   datasource:
-    # 預設本機開發用 H2 檔案模式（~ 為使用者家目錄，不受 JVM 工作目錄影響）；部署時由 SPRING_DATASOURCE_URL 覆寫成外部資料庫
+    # 本機開發用 H2 檔案模式（~ 是使用者家目錄，不受 JVM 工作目錄影響）。
+    # ⚠ 容器裡永遠用不到這個值 —— image 內建的 ENV 已經把它蓋成 jdbc:h2:mem:carddb
+    #   （設定在 pom.xml 的 Jib <environment> 區塊）。
     url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:~/h2db/carddb;AUTO_SERVER=true}
-    driverClassName: org.h2.Driver       # H2 JDBC 驅動程式類別
-    username: sa                         # 資料庫連線使用者名稱
-    password: ''                         # 資料庫連線密碼（空字串）
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ''
 
-  # H2 資料庫控制台設定
   h2:
     console:
-      enabled: true                      # 啟用 H2 Web Console，可透過 /h2-console 存取
+      enabled: true        # /h2-console 可用
 
-  # JPA / Hibernate 設定
   jpa:
-    # database-platform: org.hibernate.dialect.H2Dialect  # 停用：Hibernate 會依實際連線自動選方言；寫死會導致換 Postgres 時用錯語法
+    # ⚠ 不要寫死 database-platform（例如 H2Dialect）—— Hibernate 會依實際連線
+    #   自動選方言，寫死會導致換 Postgres 時用錯語法。
     hibernate:
-      ddl-auto: validate                 # 啟動時驗證 Entity 映射與既有資料表結構是否一致，不建立或修改資料表
-    show-sql: true                       # 在 console 印出 Hibernate 執行的 SQL 語句
+      ddl-auto: validate   # 只驗證 Entity 與資料表是否相符，不自動改結構
+    show-sql: true
     properties:
       hibernate:
-        format_sql: true                 # 格式化 Hibernate 輸出的 SQL，提高可讀性
+        format_sql: true
 
-  # SQL 初始化設定（Spring Boot 啟動時執行 SQL 腳本）
   sql:
     init:
-      mode: always                                      # 每次啟動都執行初始化；檔案型 H2 不屬於預設自動初始化的記憶體內嵌資料庫
-      schema-locations: classpath:/sql/schema.sql       # 建立資料表結構的 DDL 腳本，位於 resources/sql/schema.sql
+      # ⚠ 檔案模式的 H2 不算「內嵌資料庫」，所以預設的 embedded 不會執行，
+      #   必須用 always。schema.sql 是 CREATE TABLE IF NOT EXISTS，重複執行安全。
+      mode: always
+      schema-locations: classpath:/sql/schema.sql
 
-# Actuator 端點設定
 management:
   endpoints:
     web:
       exposure:
-        # Actuator 預設只開 health，其他端點都要明確列出來才會對外開放。
-        #   health   健康檢查（容器 healthcheck 用）
-        #   info     應用程式資訊
-        #   env      看所有設定的來源與優先序 —— 確認「值到底來自哪一層」最快的方式
-        #   refresh  重新向 Config Server 抓設定，不必重啟服務（只影響「這一個」服務）
-        #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓設定
-        #
-        # refresh 是 POST，且是 spring-cloud-context 提供的（不是 Boot 內建），
-        # 所以只有加了 spring-cloud-starter-config 的服務才有這個端點：
-        #     Invoke-RestMethod -Uri http://localhost:9000/actuator/refresh -Method Post
-        #     → 回傳「實際變動的 key 清單」，回 [] 代表沒抓到新東西（通常是忘記 push）
+        # Actuator 預設只開 health，其他端點都要明確列出來。
+        #   env         看設定的來源與優先序 —— 查「值到底來自哪一層」最快的方式
+        #   refresh     只重抓「這一個」服務的設定（POST）
+        #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓（POST）
         #
         # ⚠ 不是所有設定 refresh 都改得動：
-        #     card.* 這類自訂設定、logging.level.*  → 有效
+        #     card.* 這類自訂設定、logging.level.*                           → 有效
         #     server.port（Tomcat 已綁定）、spring.datasource.*（連線池已建立）→ 無效，只能重啟
         #
-        # ⚠ env 會印出所有設定（含資料庫連線字串），refresh 是任何人都能打的 POST。
-        #   正式環境必須用 Spring Security 保護 actuator，或只開在內部 port。
+        # ⚠ env 會印出所有設定（含連線字串），refresh 是任何人都能打的 POST。
+        #   正式環境要用 Spring Security 保護，或只開在內部 port。
         #
-        # ⚠ busrefresh 需要 spring-cloud-starter-bus-amqp 依賴 + RabbitMQ 在跑，
-        #   兩者缺一端點就不會出現（打了回 404）。目前 pom 只有 spring-cloud-bus，
-        #   沒有 binder，所以這個端點還不會生效 —— 換成 starter 之後才會。
-        #
-        # 🔑 refresh 和 busrefresh 都留著，除錯時可以切一半：
-        #     busrefresh 打了某個服務沒更新，就單獨對它打 refresh
-        #       有更新 → 問題在 Bus（沒收到廣播：連不上 RabbitMQ 或漏加依賴）
-        #       沒更新 → 問題在 Config Server 那側（忘記 push，或設定其實沒變）
+        # 🔑 兩個都留著，除錯時可以把問題切一半：busrefresh 打了某個服務沒更新，
+        #    就單獨對它打 refresh —— 有更新代表問題在 Bus（沒收到廣播），
+        #    沒更新代表問題在 Config Server 那側（通常是忘記 push）。
         include: health,info,env,refresh,busrefresh
