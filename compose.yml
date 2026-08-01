@@ -65,6 +65,13 @@ services:
       #   那種「啟動成功但資料錯」比啟動失敗難查得多。
       ENCRYPT_KEY: ${ENCRYPT_KEY:?請先在專案根目錄建立 .env 並填入 ENCRYPT_KEY}
 
+      # 消掉 JGit 的 "Cannot save config file '/.config/jgit/config'" 錯誤堆疊。
+      # Jib 產的 image 用 nobody(65534) 跑，而容器裡 HOME 是 /（root 擁有，755），
+      # JGit 想在 $HOME/.config/jgit 寫一份時間戳精度的快取就會被權限擋下來。
+      # ⚠ 純粹是噪音 —— clone 實際落在 /tmp/config-repo-xxx，設定供應完全正常。
+      #   但那是一整段 ERROR + stack trace，會蓋掉真正該看的東西。
+      HOME: /tmp
+
     healthcheck:
       # 🔑 healthcheck 是「在容器裡面」執行的，所以打 127.0.0.1（容器自己），
       #    跟上面 ports: 有沒有對外映射完全無關。
