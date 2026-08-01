@@ -2,100 +2,87 @@
 #  這是什麼？
 #
 #    Dockerfile = 一份「步驟說明書」（像食譜）
-#    docker build 之後 → 產生 image（做好的便當，可複製無限份）
-#    docker run   之後 → 產生 container（真的拿出來吃的那一份）
+#    docker build → 產生 image（做好的便當，可複製無限份）
+#    docker run   → 產生 container（真的拿出來吃的那一份）
 #
-#  Docker 會從上到下、一行一行照做，每做完一行就存一次檔（這叫「一層」）。
+#  Docker 從上到下一行一行照做，每做完一行存一次檔（這叫「一層」）。
+# =============================================================================
 #
-#  ---------------------------------------------------------------------------
-#  為什麼下面有「兩個 FROM」？因為分兩段做：
+#  檔案結構怎麼演變（數字為實測值）
 #
-#    第一段 = 廚房    有瓦斯爐、鍋子、菜刀，負責把生食材煮成菜
-#    第二段 = 便當盒  只裝煮好的菜，鍋子菜刀通通不帶走
+#  ┌─ 第一段：廚房  FROM ...25-jdk-alpine AS builder ───────────────────────────┐
+#  │
+#  │ WORKDIR /build            /build/                    ← 空的
+#  │
+#  │ COPY .mvn/ mvnw pom.xml     ├── .mvn/  mvnw  pom.xml
+#  │
+#  │ RUN dependency:go-offline （164 個依賴下載到 /root/.m2，193 MB
+#  │                             —— 不在 /build 底下）
+#  │ COPY src/                   ├── src/                 ← 你寫的 .java
+#  │
+#  │ RUN clean package           ├── target/
+#  │                             │    └── account-0.0.1-SNAPSHOT.jar  99 MB
+#  │                             │       （程式碼 + 164 個函式庫，fat jar）
+#  │ RUN jarmode extract         └── extracted/
+#  │                                  ├── dependencies/lib/    99 MB / 164 個
+#  │                                  ├── spring-boot-loader/
+#  │                                  ├── snapshot-dependencies/
+#  │                                  └── application/app.jar  ~45 KB
+#  │
+#  │ 每一步都是「疊上去」，前面的檔案不會消失，會一直累積。
+#  │ 這一段最後有 1.17 GB。
+#  │
+#  └────────────────────────────────────────────────────────────────────────────┘
+#                    │
+#                    │  只有 extracted/ 被帶走，其餘（JDK、Maven、.m2、
+#                    ↓  src、target）全部丟掉
+#  ┌─ 第二段：便當盒  FROM ...25-jre-alpine ────────────────────────────────────┐
+#  │
+#  │ WORKDIR /app              /app/
+#  │ COPY --from=builder x4      ├── lib/         164 個 jar
+#  │                             └── app.jar      你的程式
+#  │
+#  │ 成品 501 MB（基底 jre-alpine 就佔 305 MB）
+#  │
+#  └───────────────────────────────────────────────────────────────────────────┘
 #
-#  第一段的東西最後「整個丟掉」，只有明確說要帶走的檔案才會進便當盒。
-#  實測：廚房 934 MB（建完就丟）→ 便當盒 422 MB（這才是成品）
+#  建置：cd account && docker build -t anthonysk/account:0.0.1-SNAPSHOT .
+#  執行：docker compose up -d account（設定見專案根目錄的 compose.yml）
 # =============================================================================
 
 
 # =============================================================================
 #  第一段：廚房 —— 把原始碼變成 jar
 # =============================================================================
-
-# 「先給我一間裝好 Java 25 開發工具的乾淨 Linux 電腦」
-#   eclipse-temurin:25-jdk-alpine → 別人做好的現成 image
-#   jdk    = 開發版（能編譯，也能執行）
-#   alpine = 超精簡的 Linux（只留必要的東西，體積小）
-#   AS builder = 幫這間廚房取名叫 builder，第二段才能說「去 builder 那裡拿東西」
+# AS builder 是幫這間廚房取名，第二段才能說「去 builder 那裡拿東西」
 FROM eclipse-temurin:25-jdk-alpine AS builder
-
-# 「在這台電腦上開一個 /build 資料夾，然後走進去」
-# 之後所有動作都在這個資料夾裡發生（等同 cd /build）
-#
-#   容器現在：/build/        ← 空的
 WORKDIR /build
 
-
-# --- 步驟 1：先搬「設定檔」，故意不搬程式碼 -----------------------------------
+# 先只搬「下載依賴需要的三樣東西」，故意不搬程式碼。
+# 🔑 這樣拆是為了快取：pom.xml 沒變 → 下一行整個跳過（build log 顯示 CACHED）。
+#    跟程式碼一起搬的話，改一行 Controller 就要重載 193 MB 的依賴。
 #
-# 這三樣東西就是「下載函式庫」所需的全部：
-#   mvnw                                → Maven 啟動腳本
-#   .mvn/wrapper/maven-wrapper.properties → 記載要用哪個 Maven 版本（3.9.16）
-#   pom.xml                             → 要下載哪些函式庫的清單
-#
-#   容器現在：/build/
-#             ├── .mvn/wrapper/maven-wrapper.properties
-#             ├── mvnw
-#             └── pom.xml
-#
-# ⚠ 注意目的地要寫 .mvn/ 而不是 ./
-#   因為來源是「資料夾」時，COPY 複製的是「裡面的內容」，不是資料夾本身。
-#   寫成 ./ 的話 wrapper/ 會被倒進 /build/，.mvn 那層消失，mvnw 就找不到設定了。
+# ⚠ 目的地要寫 .mvn/ 不能寫 ./
+#   來源是資料夾時，COPY 複製的是「裡面的內容」而不是資料夾本身。
+#   寫 ./ 的話 wrapper/ 會直接倒進 /build/，.mvn 那層消失，mvnw 就找不到設定。
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 
-# 「把 93 個函式庫（Spring、Hibernate、H2…）全部下載下來」—— 這步最慢，約 62 MB
-#
-#   chmod +x mvnw          → 給執行權限（Windows 的檔案搬到 Linux 會沒有）
-#   -B                     → 不要輸出進度條那種動態字元，log 才乾淨
-#   dependency:go-offline  → 只下載，先不編譯
-#
-# 🔑 為什麼要跟程式碼分兩步做？
-#    Docker 的規則是：某一步用到的檔案沒變，就直接拿上次的結果，不重做。
-#      你改了一行 Controller → pom.xml 沒變 → 這步跳過，不重新下載 ✅
-#      若程式碼跟 pom.xml 一起搬 → 每次都要重載 62 MB ❌
-#    重建時看到的 CACHED 就是這個機制在生效。
+# chmod 是因為 Windows 的檔案搬到 Linux 沒有執行權限
+# -B 關掉進度條那種動態字元，log 才乾淨
 RUN chmod +x mvnw && ./mvnw -B dependency:go-offline
 
-
-# --- 步驟 2：現在才搬程式碼，然後開始煮 ---------------------------------------
-#
-#   容器現在：/build/
-#             ├── .mvn/  mvnw  pom.xml
-#             └── src/                   ← 你寫的 .java 檔
+# -DskipTests：測試該由 CI 負責，不然每次做便當都要試吃一輪
 COPY src/ src/
-
-# 「把 .java 編譯成 .class，再打包成一個 jar」
-#   -DskipTests → 跳過測試。測試該由 CI 負責，不然每次做便當都要試吃一輪，太慢
-#
-#   容器現在：/build/target/account-0.0.1-SNAPSHOT.jar
-#             （62 MB，你的程式碼 + 93 個函式庫全包在裡面，稱為 fat jar）
 RUN ./mvnw -B clean package -DskipTests
 
-
-# --- 步驟 3：把 62 MB 的大包裹拆成兩堆 ----------------------------------------
+# 把 fat jar 拆成「依賴」和「自己的程式碼」兩堆。
+# 🔑 Docker 是一層一層存的。99 MB 全擠在一層的話，改一行程式碼整包都要重做、
+#    重新上傳；拆開之後只有 45 KB 那層會變。
+#    → 分層真正省的是「傳輸量」，不是建置時間（編譯還是得跑）。
 #
-#   容器現在：/build/extracted/
-#             ├── dependencies/lib/     ← 93 個函式庫（62 MB，幾乎不會變）
-#             └── application/app.jar   ← 你的程式碼（45 KB，每次都變）
-#
-# 🔑 為什麼要拆？
-#    Docker 是一層一層存的。62 MB 若全擠在同一層：
-#      改一行程式碼 → 整包 62 MB 都要重做、重新上傳 ❌
-#      拆開之後     → 只有 45 KB 那層要重做           ✅
-#
-# 最後的 mv 是把檔名 account-0.0.1-SNAPSHOT.jar 改成 app.jar，
-# 這樣最下面的 ENTRYPOINT 就能寫死名字，以後版本號升級也不必改 Dockerfile。
+# 最後的 mv 把 account-0.0.1-SNAPSHOT.jar 改名成 app.jar，
+# 這樣 ENTRYPOINT 可以寫死檔名，升版號時不用改 Dockerfile。
 RUN java -Djarmode=tools -jar target/*.jar extract --layers --destination extracted \
     && mv extracted/application/*.jar extracted/application/app.jar
 
@@ -103,190 +90,57 @@ RUN java -Djarmode=tools -jar target/*.jar extract --layers --destination extrac
 # =============================================================================
 #  第二段：便當盒 —— 只裝跑得起來所需的最少東西
 # =============================================================================
-
-# 「重新拿一個乾淨的盒子，這次只要 JRE」
-#
-#            能編譯 Java   能執行 Java   體積
-#    jdk         ✅            ✅        大
-#    jre         ❌            ✅        小      ← 程式跑起來只需要「執行」
-#
-# ⚠ 這一行一下，上面那間廚房就整個消失了 —— JDK、Maven、原始碼、target 都不見。
+# ⚠ 這一行是整份檔案「唯一真正清空」的地方 —— 廚房整個消失，從這裡開始是
+#   全新的空環境，只有下面 COPY --from=builder 帶過來的檔案才存在。
+#   jre 能執行但不能編譯，體積比 jdk 小。
 FROM eclipse-temurin:25-jre-alpine
-
-# 便當盒裡開一個 /app 資料夾並走進去
 WORKDIR /app
 
-# 「建立一個普通員工帳號，之後都用他的身份做事，不要用管理員（root）」
-# 容器萬一被入侵，對方拿到的是受限帳號，而不是最高權限。
+# 建立一個普通員工帳號，不要用管理員（root）。
+# 容器萬一被入侵，對方拿到的是受限帳號。
 RUN addgroup -S app && adduser -S app -G app
 USER app
 
-# 「從那間即將被拆掉的廚房裡，把成品端出來」
-#
-#   --from=builder    → 來源不是你的電腦，是第一段那間廚房
-#   --chown=app:app   → 把檔案擁有者設成剛建的員工帳號
-#                       （不然檔案屬於 root，員工可能讀不到）
-#
-# ⚠ 這四行的順序是刻意的：從「最不會變」排到「最常變」
-#     第 1 行 93 個函式庫（幾乎不變）→ 這層的快取幾乎永遠有效
-#     第 4 行 你的程式碼（每次都變）  → 只有這層要重做
-#   順序反過來的話，前面一變動，後面全部的快取都會失效。
-#
-#   容器現在：/app/
-#             ├── lib/        ← 93 個 jar
-#             └── app.jar     ← 你的程式
+# 從那間即將被拆掉的廚房裡，把成品端出來。
+# ⚠ 這四行的順序是刻意的：從「最不會變」排到「最常變」。
+#   第 1 行是 164 個依賴（幾乎不變，快取幾乎永遠有效），第 4 行是你的程式碼
+#   （每次都變）。順序反過來的話，前面一變動，後面全部的快取都失效。
+# ⚠ --chown 不能省，否則檔案屬於 root，上面那個 app 使用者可能讀不到。
 COPY --from=builder --chown=app:app /build/extracted/dependencies/ ./
 COPY --from=builder --chown=app:app /build/extracted/spring-boot-loader/ ./
 COPY --from=builder --chown=app:app /build/extracted/snapshot-dependencies/ ./
 COPY --from=builder --chown=app:app /build/extracted/application/ ./
 
-# 「在盒子上貼張紙條：這個服務用 8080 號門」
-#
-# ⚠ 它「只是紙條，不會真的開門」。要能從外面連進來，啟動時得自己指定：
-#     docker run -p 8080:8080 ...
-#                   ↑外面  ↑裡面
+# 在盒子上貼張紙條：這個服務用 8080 號門。
+# ⚠ 只是紙條，不會真的開門。要從外面連進來得靠 -p 8080:8080 或 compose 的 ports:
 EXPOSE 8080
 
-# 資料庫連線的「預設值」，搭配 application.yaml 裡的 ${SPRING_DATASOURCE_URL:...}
-#   有這個環境變數 → 用它；沒有 → 才用 yaml 裡寫的
-#
-# 為什麼預設用記憶體資料庫？因為容器裡的檔案「關掉就沒了」。
-# 用 mem 至少語意清楚（一看就知道是暫時的），
-# 不會讓人誤以為資料有存起來、結果容器重建後才發現全消失。
-#
-# 真正部署時要覆蓋掉，指向外部資料庫：
-#   docker run -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/accountdb \
-#              -e SPRING_DATASOURCE_USERNAME=app \
-#              -e SPRING_DATASOURCE_PASSWORD=secret ...
+# 預設值，可被 compose 的 environment: 或 docker run -e 覆蓋。
+# 用記憶體資料庫是刻意的 —— 容器裡的檔案關掉就沒了，用 mem 語意才清楚，
+# 不會讓人誤以為資料有存起來、重建容器後才發現全消失。
 ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb
 
-# image 的「標籤紙」：純 metadata，不影響程式執行，是給人和工具看的。
-# 用的是 OCI 標準欄位名稱，所以 registry 和掃描工具都認得。
-#   查看方式：docker image inspect <image> 的 Config.Labels 欄位
-#
-# 誰會讀它：
-#   docker inspect、docker images 的 label 篩選、資安掃描工具（Trivy/Grype）、SBOM 工具
-#
-# ⚠ 這裡的 LABEL「不足以」讓 GitHub Packages 顯示描述或自動連結 repo！
-#   本 Dockerfile 經 buildx 建出的是 OCI manifest，GitHub 只讀 manifest annotation。
-#   要讓 ghcr.io 顯示這些資訊，必須另外用 buildx 的 annotation 參數 —— 詳見檔案最後
-#   「推到 GitHub Packages」那一段。（推 Docker Hub 則完全不需要，Docker Hub 的描述
-#   是在網頁上另外填的。）
-#
-# ⚠ 刻意放在檔案最後面（緊鄰 ENTRYPOINT）。
-#   LABEL 會產生一個 0 B 的層，放前面會讓後面所有層的快取失效；
-#   放最後則改 label 幾乎不需要重建任何東西。
+# 純 metadata。docker inspect、資安掃描工具（Trivy/Grype）、SBOM 工具會讀。
+# ⚠ 刻意放最後：LABEL 會產生一個 0 B 的層，放前面會讓後面所有層的快取失效。
+# ⚠ 這裡的 LABEL「不足以」讓 GitHub Packages 顯示描述 —— 見檔案最後那段。
 LABEL org.opencontainers.image.title="account-service" \
       org.opencontainers.image.description="帳戶與客戶資料的 REST API" \
       org.opencontainers.image.authors="Tony Shangkuan" \
       org.opencontainers.image.source="https://github.com/tonysk0210/springboot-microservices"
 
-# 「便當打開時要執行的動作」
-#
-# 上面所有步驟都是「準備」，只有這一行是 docker run 時才執行的。
-# 因為 WORKDIR 是 /app，所以 app.jar 就是 /app/app.jar；
-# 而 app.jar 裡記載著 Class-Path: lib/...，Java 會自動去旁邊的 /app/lib/ 找那 93 個函式庫。
+# 便當打開時要執行的動作 —— 上面全是「準備」，只有這一行是 docker run 時才跑的。
+# app.jar 裡記載著 Class-Path: lib/...，Java 會自動去 /app/lib/ 找那些依賴。
 ENTRYPOINT ["java", "-jar", "app.jar"]
 
 
 # =============================================================================
-#  附錄：實測「改一行程式碼後重建」哪些步驟會被重跑
-#         （指令：docker build --progress=plain -t account:0.0.1-SNAPSHOT .）
-#
-#  ┌──────────────────────────────────────┬──────────────────────────────────┐
-#  │ 第一階段（廚房）                       │                                  │
-#  ├──────────────────────────────────────┼──────────────────────────────────┤
-#  │ WORKDIR /build                       │ ✅ CACHED                        │
-#  │ COPY .mvn/ .mvn/                     │ ✅ CACHED                        │
-#  │ COPY mvnw pom.xml ./                 │ ✅ CACHED                        │
-#  │ RUN ./mvnw dependency:go-offline     │ ✅ CACHED（不用重載 93 個依賴）    │
-#  │ COPY src/ src/                       │ ❌ 重跑（原始碼變了）              │
-#  │ RUN ./mvnw clean package             │ ❌ 重跑（重新編譯打包，最慢一步）    │
-#  │ RUN java -Djarmode=tools ... extract │ ❌ 重跑                          │
-#  ├──────────────────────────────────────┼──────────────────────────────────┤
-#  │ 第二階段（便當盒）                      │                                  │
-#  ├──────────────────────────────────────┼──────────────────────────────────┤
-#  │ WORKDIR /app                         │ ✅ CACHED                        │
-#  │ RUN addgroup && adduser              │ ✅ CACHED                        │
-#  │ COPY dependencies/                   │ ✅ CACHED ← 62 MB 沒動            │
-#  │ COPY spring-boot-loader/             │ ✅ CACHED                        │
-#  │ COPY snapshot-dependencies/          │ ✅ CACHED                        │
-#  │ COPY application/                    │ ❌ 重建（45 KB）                  │
-#  └──────────────────────────────────────┴──────────────────────────────────┘
-#
-#  🔑 為什麼 COPY dependencies/ 還能命中快取？
-#     上游的 extract 明明重跑了，但 COPY 的快取是比對「檔案內容」，
-#     不是比對「上游有沒有重跑」。93 個依賴 jar 內容一模一樣 → 命中。
-#     只有 app.jar 的內容變了 → 只有那層重建。
-#
-#  🔑 所以分層省下的是什麼？
-#     省到　：不用重新下載 93 個依賴；最終 image 只新增 45 KB 的層，
-#             push 到 registry 只上傳 45 KB（沒分層的話要傳 62 MB）
-#     沒省到：編譯打包還是要跑（本機 CPU 約 20-30 秒）
-#     → 分層的最大價值在「傳輸」，不在「建置時間」。
-#
-#  🔑 什麼情況連依賴下載都會重跑？
-#     只有 pom.xml 改動時（新增依賴、升級版本）。那次建置會明顯變慢，
-#     而且 62 MB 那層也要重推 —— 但不常發生。
-# =============================================================================
-
-
-# =============================================================================
-#  常用指令：改完程式碼之後的完整流程（PowerShell）
-#
-#  cd D:\Fork\github\springboot-microservices\account
-#
-#  # 1. 重建 image（最後的 . 不能省，代表 build context = 當前目錄）
-#  docker build -t anthonysk/account:0.0.1-SNAPSHOT .
-#
-#  # 2. 移除舊容器（沒有同名容器時會顯示 "No such container"，可忽略）
-#  docker rm -f account
-#
-#  # 3. 用新 image 跑起來（名稱必須與第 1 步完全一致，否則會跑到舊 image）
-#  docker run -d --name account -p 8080:8080 anthonysk/account:0.0.1-SNAPSHOT
-#             ↑      ↑                ↑                    ↑
-#          背景執行  容器叫什麼名字   port 映射         用哪個 image
-#
-#  # 4. 確認啟動成功（約需 10 秒；回 {"status":"UP"} 代表就緒）
-#  curl http://localhost:8080/actuator/health
-#
-#  # 5. 看 log（-f 會持續追蹤，按 Ctrl+C 離開，不會停掉容器）
-#  docker logs -f account
-#
-#  # 6. 用完收工
-#  docker rm -f account
-#
-#  ---------------------------------------------------------------------------
-#  ⚠ 第 2 步不能省：已在執行的容器「不會」因為你重建 image 就自動更新，
-#    必須刪掉重跑。忘記的話會一直看到舊版行為，很難察覺。
-#
-#  ⚠ 第 1、3 步的 image 名稱必須一模一樣。若本機同時存在
-#    account:0.0.1-SNAPSHOT 與 anthonysk/account:0.0.1-SNAPSHOT，
-#    名稱寫錯會「安靜地」跑到另一個（舊的）image，不會有任何錯誤訊息。
-#
-#  ---------------------------------------------------------------------------
-#  名稱的兩種用法：
-#    account:0.0.1-SNAPSHOT              → 只在本機跑，不能 push
-#    anthonysk/account:0.0.1-SNAPSHOT    → anthonysk 必須是你真實的 Docker Hub
-#                                          帳號，登入後才能 docker push
-#    ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT
-#                                        → 推到 GitHub Packages（見下方）
-#
-#  瀏覽器可開：
-#    http://localhost:8080/swagger-ui/index.html   API 文件
-#    http://localhost:8080/actuator/health         健康檢查
-# =============================================================================
-
-
-# =============================================================================
-#  推到 GitHub Packages（ghcr.io）—— 這一段是實際踩坑後才確定的做法
+#  推到 ghcr.io —— ⚠ 這是「當初建立 package 時」用的做法，現在日常推送用
+#  專案根目錄的 push-all.ps1（docker tag + docker push）。
+#  只有「刪掉 package 重建」時才需要回來用這一串。
 # =============================================================================
 #
-#  # 1. 登入（token 從 https://github.com/settings/tokens 產生 classic token，
-#  #    勾選 write:packages；密碼欄位貼 token，不是 GitHub 密碼）
-#  docker login ghcr.io -u tonysk0210
+#  docker login ghcr.io -u tonysk0210     # 密碼欄貼 classic token（勾 write:packages）
 #
-#  # 2. 建置並直接推送（一定要用 buildx build + --push，見下方原因）
 #  docker buildx build --provenance=false --sbom=false `
 #    --annotation "org.opencontainers.image.description=帳戶與客戶資料的 REST API" `
 #    --annotation "org.opencontainers.image.source=https://github.com/tonysk0210/springboot-microservices" `
@@ -294,47 +148,22 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 #    --annotation "org.opencontainers.image.authors=Tony Shangkuan" `
 #    --push -t ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT .
 #
-#  # 3. 驗證 annotation 有寫進 manifest
-#  docker buildx imagetools inspect ghcr.io/tonysk0210/account:0.0.1-SNAPSHOT --raw
-#
 #  ---------------------------------------------------------------------------
-#  🔑 為什麼要 --annotation？Dockerfile 的 LABEL 不夠嗎？
+#  🔑 為什麼 LABEL 不夠，還要 --annotation？
+#     兩者寫在 image 的不同位置：LABEL 進 image config，annotation 進 manifest。
+#     GitHub 對 OCI manifest「只讀 annotation，不會退回去讀 label」。
+#     （loan 用 Buildpacks、card 用 Jib，產出的是舊的 Docker v2 manifest，
+#       該格式不支援 annotation，GitHub 才會退回讀 label —— 所以只設 label 就夠。）
 #
-#     不夠。兩者寫在 image 的不同位置，不同工具讀不同位置：
-#       LABEL（寫進 image config）  → docker inspect、資安掃描工具讀這個
-#       --annotation（寫進 manifest）→ GitHub package 頁面讀這個
+#  ⚠ --provenance=false --sbom=false 不能省：buildx 預設會多附一份建置履歷，
+#    讓 tag 指向一個 index，GitHub 看到 index 就讀不到 metadata。
 #
-#     實測結論：GitHub 對 OCI manifest 只讀 manifest annotation，
-#     「不會」退回去讀 config label。所以只有 LABEL 的話，
-#     package 頁面的描述會空白、也不會自動連結 repo。
+#  ⚠ 一定要 --push，不能先 build 再 push —— annotation 在 --load 到本機 Docker
+#    的過程中會遺失。副作用是 image 不會留在本機，要另外 build 一次或 pull 回來。
 #
-#     （loan 模組用 Buildpacks 建出的是舊的 Docker v2 manifest，
-#       該格式不支援 annotation，GitHub 才會退回讀 config label，
-#       所以它只靠 BP_OCI_* 就能顯示描述 —— 差異來自 manifest 格式。）
+#  ⚠ package 的描述與 repo 連結在「首次建立時」就定型，補推同一個 tag 不會更新。
+#    要改就得先到 GitHub 刪掉整個 package 再重推。
 #
-#  🔑 為什麼要 --provenance=false --sbom=false？
-#
-#     buildx 預設會額外附一份「建置履歷」，讓 tag 指向一個 index（清單），
-#     裡面有「你的 image + 履歷」兩項。GitHub 看到 index 就讀不到 metadata，
-#     package 頁面會出現「OS / Arch 2」而且描述空白。關掉就變成單一 manifest。
-#
-#  🔑 為什麼要 --push 而不是先 build 再 push？
-#
-#     --annotation 只在「直接寫入 registry」時生效。若先 --load 到本機
-#     Docker 再 docker push，annotation 會在 load 的過程中遺失。
-#
-#  ⚠ 最容易卡住的地方：GitHub 的 package metadata 在「首次建立時」就定型，
-#    事後補推同一個 tag 不會更新描述與 repo 連結。
-#    所以設定改了之後，必須先到 GitHub 刪掉該 package，再重新推一次。
-#
-#  ⚠ --push 不會把 image 留在本機（buildx 直接送到 registry）。
-#    本機要用的話另外執行一次不帶 --push 的 docker build，
-#    或事後 docker pull 回來。
-#
-#  ⚠ 官方文件指出：命令列推送「本來就不保證」自動連結 repo，
-#    要保證自動連結請改用 GitHub Actions + GITHUB_TOKEN 建置推送。
-#    命令列推送若沒自動連上，可到 Package settings 手動 Connect repository。
-#
-#  ⚠ ghcr.io 推上去預設是 Private。要讓別人不登入就能 pull：
+#  ⚠ ghcr.io 推上去預設是 Private。要公開：
 #    Package settings → Danger Zone → Change visibility → Public
 # =============================================================================
