@@ -1,93 +1,65 @@
 # =============================================================================
-#  common.yml —— compose.yml 的共用設定，用 extends 繼承
-# =============================================================================
+#  compose.yml 的共用設定，用 extends 繼承。三層由通用到專用：
 #
-#  🔑 這裡定義的服務「不會被啟動」。
-#     extends 只是把設定「複製」到引用它的服務身上，不會憑空多出容器。
-#     docker compose config 展開後看不到 resource-limits / configserver-base
-#     這些名字，只會看到它們的內容被併進 account / loan / card 裡。
-#
-#  ⚠ 這個檔案不能單獨 docker compose up —— 裡面的服務都沒有 image，會報錯。
-#     它只是被 compose.yml 引用的設定庫。
-#
-#  ---------------------------------------------------------------------------
-#  三層結構，由通用到專用：
-#
-#    resource-limits      只有記憶體上限 —— 連 rabbitmq（非 Spring 服務）也能用
+#    resource-limits     只有記憶體上限          ← rabbitmq 用（它不是 Spring 服務）
 #        ↓
-#    configserver-base      + JVM 參數、連 RabbitMQ、等 rabbitmq healthy
-#        ↓                  （configserver 用這層）
-#    microservice-base    + 向 Config Server 拿設定、等 configserver healthy
-#                           （account / loan / card 用這層）
+#    configserver-base   + JVM 參數、連 RabbitMQ  ← configserver 用
+#        ↓
+#    microservice-base   + 向 Config Server 拿設定 ← account / loan / card 用
 #
-#  ---------------------------------------------------------------------------
+#  🔑 這裡的服務「不會被啟動」—— extends 只是把設定複製給引用它的服務。
+#     docker compose config 展開後看不到這些名字，只會看到內容被併進去。
+#  ⚠ 本檔案不能單獨 docker compose up（服務都沒有 image），它只是設定庫。
+#
 #  合併規則（實測過）：
-#    environment  會「合併」，同名 key 由引用方（compose.yml）勝出
+#    environment  合併，同名 key 由引用方（compose.yml）勝出
 #    depends_on   會被帶過來（Compose V2 支援，舊版 docker-compose v1 不支援）
-#    healthcheck  沒放在這裡 —— 每個服務的 port 和工具不同，共用價值低
-#                 （而且 loan 的 image 沒有 wget，根本不能有 healthcheck）
+#    healthcheck  刻意不放這裡 —— 每個服務 port 不同，共用價值低
 # =============================================================================
 
 services:
 
-  # ---------------------------------------------------------------------------
-  #  第 1 層：資源限制
-  #  抽出來是為了讓 rabbitmq 也能用 —— 它不是 Spring 服務，不需要下面那些設定。
-  # ---------------------------------------------------------------------------
   resource-limits:
-    # = docker run --memory=700m
-    #
-    # ⚠ deploy 原本是 Docker Swarm 專用欄位，舊版 docker-compose（v1，有橫線）
-    #   會直接忽略它。現在的 docker compose（v2，空格）才會確實套用。
+    # ⚠ deploy 原本是 Swarm 專用欄位，舊版 docker-compose（v1，有橫線）會忽略它。
     #   等價的簡單寫法是 mem_limit: 700m。
     deploy:
       resources:
         limits:
-          # ⚠ 五個容器 × 700m = 3.5GB，記得確認 Docker Desktop 的 WSL2 記憶體配額夠。
-          #   超過上限「不會」拋 OutOfMemoryError，是被 Linux OOM killer 直接砍掉，
+          # ⚠ 超過上限「不會」拋 OutOfMemoryError，是被 Linux OOM killer 直接砍掉，
           #   docker ps -a 顯示 exit code 137，log 通常什麼線索都不留。
+          #   五個容器 × 700m = 3.5GB，記得確認 Docker Desktop 的 WSL2 配額夠。
           memory: 700m
 
-  # ---------------------------------------------------------------------------
-  #  第 2 層：所有 Spring Boot 服務共通（含 configserver）
-  # ---------------------------------------------------------------------------
   configserver-base:
     extends:
-      service: resource-limits      # 同一檔案內引用，不用寫 file:
+      service: resource-limits      # 同檔案內引用，不用寫 file:
     environment:
-      # 沒這行的話 JVM 只拿記憶體上限的 25% 當 heap → 700m 限制下 heap 只有 175MB。
-      # 設 75% 拉到約 525MB，剩下留給 metaspace、code cache、thread stack。
-      #
-      # ⚠ 對 loan 可能無效：Paketo 的啟動器會自己算並明確指定 -Xmx，
-      #   而 -Xmx 的優先權高於 MaxRAMPercentage。看它啟動 log 的
-      #   "Calculated JVM Memory Configuration: ... -Xmx..." 才準。
+      # 不設的話 JVM 只拿記憶體上限的 25% 當 heap（700m 下只有 175MB）。
+      # ⚠ 對 loan 無效 —— Paketo 會把自己算的 -Xmx 追加在後面，優先權更高。
+      #   詳見 compose.yml 裡 loan 的 BPL_JVM_THREAD_COUNT 那段。
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
 
-      # ⚠ 覆寫 application.yaml 裡的 localhost —— 容器裡的 localhost 指的是容器自己。
+      # ⚠ 覆寫 application.yaml 的 localhost —— 容器裡的 localhost 是容器自己。
       SPRING_RABBITMQ_HOST: rabbitmq
 
     depends_on:
       rabbitmq:
         condition: service_healthy
 
-  # ---------------------------------------------------------------------------
-  #  第 3 層：需要向 Config Server 拿設定的服務（account / loan / card）
-  #  configserver 自己不用這層 —— 它的設定來自本地 application.yaml。
-  # ---------------------------------------------------------------------------
   microservice-base:
     extends:
       service: configserver-base
     environment:
-      # ⚠ 刻意「不加 optional:」，跟各服務 application.yaml 的版本不同：
-      #     本機（yaml）  optional: → 想單獨跑某個服務時不必先開 configserver
-      #     容器（這裡）  不加      → 抓不到設定就啟動失敗，問題當場暴露
-      #   容器環境已經有 depends_on 保證順序，真的連不上就是有問題，
-      #   不該用 optional: 遮掉（那會變成「啟動成功但設定全是 null」的安靜失敗）。
+      # ⚠ 刻意不加 optional:，跟 application.yaml 的版本不同：
+      #     本機 yaml  有 optional: → 想單獨跑某個服務時不必先開 configserver
+      #     容器這裡    不加        → 抓不到設定就啟動失敗，問題當場暴露
+      #   容器已有 depends_on 保證順序，真連不上就是有問題，不該用 optional: 遮掉
+      #   （那會變成「啟動成功但設定全是 null」的安靜失敗）。
       SPRING_CONFIG_IMPORT: "configserver:http://configserver:8071/"
 
-    # ⚠ 這裡兩個都要列。rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，
-    #   依賴會遞移），但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 ——
-    #   哪天 configserver 不再需要 Bus，遞移關係消失時不會安靜地壞掉。
+    # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
+    #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
+    #   不再需要 Bus，遞移關係消失時才不會安靜地壞掉。
     depends_on:
       rabbitmq:
         condition: service_healthy
