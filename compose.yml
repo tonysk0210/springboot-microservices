@@ -102,7 +102,7 @@ services:
     #  ⚠ 這行只影響主機端。容器之間互相呼叫走內部網路，不需要 ports，
     #    而且用的永遠是右邊那個容器 port。
 
-    # JVM 參數、SPRING_RABBITMQ_HOST、SPRING_CONFIG_IMPORT、記憶體上限、
+    # JVM 參數、SPRING_RABBITMQ_HOST、CONFIGSERVER_HOST、記憶體上限、
     # depends_on（rabbitmq + configserver）全部來自 common.yml
     extends:
       file: common.yml

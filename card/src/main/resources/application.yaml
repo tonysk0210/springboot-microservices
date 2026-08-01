@@ -20,10 +20,19 @@ spring:
   # 但環境變數又贏過遠端，所以 compose 的 environment: 可以當除錯後門）。
   #
   # optional: = 抓不到也照樣啟動，退回用本檔案的值 —— 本機想單獨跑 card 時方便。
-  # ⚠ 容器裡由 compose 覆寫成「不帶 optional:」的版本，而且 localhost 換成服務名：
-  #     SPRING_CONFIG_IMPORT: "configserver:http://configserver:8071/"
+  #
+  # 位址寫成變數，本機和容器共用同一行：
+  #     IntelliJ 跑（沒設變數）→ localhost
+  #     容器跑（common.yml 設 CONFIGSERVER_HOST: configserver）→ configserver
+  #
+  # ⚠ 千萬不要改回「在 compose 用 SPRING_CONFIG_IMPORT 覆寫」——那樣不會覆寫，
+  #   而是「兩個 import 都執行」。spring.config.import 跟一般屬性的規則不同：
+  #   一般屬性同名 key 比優先權、高的贏；但 import 是由 ConfigData 機制逐個
+  #   設定來源分別處理，yaml 一份、環境變數一份，互不相干。
+  #   症狀：log 每次啟動和 refresh 都多印 localhost:8071 的 Connection refused，
+  #        程式其實正常（被 optional: 忽略了），但假警報會蓋掉真警報。
   config:
-    import: "optional:configserver:http://localhost:8071/"
+    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
 
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。

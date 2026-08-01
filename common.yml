@@ -50,12 +50,22 @@ services:
     extends:
       service: configserver-base
     environment:
-      # ⚠ 刻意不加 optional:，跟 application.yaml 的版本不同：
-      #     本機 yaml  有 optional: → 想單獨跑某個服務時不必先開 configserver
-      #     容器這裡    不加        → 抓不到設定就啟動失敗，問題當場暴露
-      #   容器已有 depends_on 保證順序，真連不上就是有問題，不該用 optional: 遮掉
-      #   （那會變成「啟動成功但設定全是 null」的安靜失敗）。
-      SPRING_CONFIG_IMPORT: "configserver:http://configserver:8071/"
+      # 只換「主機名」，不換整條 import 字串。
+      # application.yaml 寫的是 http://${CONFIGSERVER_HOST:localhost}:8071/，
+      # 所以本機跑 → localhost，容器跑 → configserver。
+      #
+      # ⚠ 為什麼不直接設 SPRING_CONFIG_IMPORT 覆寫整條？因為它「不會覆寫」——
+      #   spring.config.import 是由 ConfigData 機制逐個設定來源分別處理的，
+      #   yaml 一份、環境變數一份，兩份都會執行。實測結果：容器裡先連
+      #   configserver:8071（成功），再連 localhost:8071（Connection refused），
+      #   每次啟動和每次 refresh 都噴一輪 WARN。程式沒壞，但假警報很礙事。
+      CONFIGSERVER_HOST: configserver
+
+      # application.yaml 的 import 帶著 optional:（本機單獨跑某個服務時方便），
+      # 但容器裡不該容忍 —— depends_on 已保證 configserver 先 healthy，
+      # 這時還連不上就是真的有問題，不該安靜地啟動成「設定全是 null」。
+      # 這個開關讓 optional: 失效，連不上就 fail fast。
+      SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
 
     # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
     #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
