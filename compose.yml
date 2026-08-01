@@ -115,8 +115,42 @@ services:
       file: common.yml
       service: microservice-base
 
-    # ⚠ 沒有覆寫 SPRING_DATASOURCE_URL，所以沿用 image 內建的 jdbc:h2:mem:accountdb
-    #   —— 記憶體資料庫，容器一關資料就沒。要存得住見檔案最下面的〈進階〉。
+    # ── H2 資料持久化（三個服務寫法相同，只有名字不同）──────────────────────
+    #
+    # ⚠ 三件事缺一不可，少任何一個都不會成功：
+    #     ① user: root      不然寫不進去（見下方說明）
+    #     ② volumes:        提供一塊容器外的空間
+    #     ③ 連線字串 mem→file  叫 H2 寫到那塊空間
+    #
+    # ① 為什麼要 root：
+    #    image 裡沒有 /data 這個目錄，Docker 就當場建一個，擁有者是 root:root 755。
+    #    而三個 image 都用非 root 跑（account=app(100)、loan=cnb(1002)、card=nobody(65534)），
+    #    在「其他人」那格只有 r-x → touch 會 Permission denied。
+    #    而且程式自己修不了 —— chown / chmod 都只有 root 能做。
+    #    ⚠ 正式環境不該這樣，應該在 Dockerfile 裡先 mkdir + chown（趁還是 root 時），
+    #      或用一個 init 容器把 volume chown 好。這裡圖方便。
+    #    ⚠ 副作用：volume 裡的檔案會變成 root 的。以後想改回非 root 要先進去 chown。
+    #
+    # ② 左邊是 volume 名字（不是路徑），右邊是容器內路徑，格式跟 ports: 一樣。
+    #    名字要在檔案最下面的 volumes: 區塊宣告，否則 compose 直接拒絕啟動。
+    #
+    # ③ compose 的 environment: 優先權高於 image 內建的 ENV，所以不用重建 image。
+    #    AUTO_SERVER=true 允許多個程序開同一個檔案 —— 容器裡用不到，
+    #    留著是為了讓 Windows 上的 DBeaver 之後能連進來看。
+    #
+    # 資料實際位置（WSL2 裡的 Linux 路徑，檔案總管打不開）：
+    #     /var/lib/docker/volumes/springboot-microservices_account-data/_data
+    # 想看內容：
+    #     docker run --rm -v springboot-microservices_account-data:/data alpine ls -la /data
+    #
+    # ⚠ 三個服務各用各的 volume，不要共用 —— 共不共用只看名字有沒有一樣。
+    #   H2 檔案模式的鎖跨容器行為不可靠，共用一定出事。
+    # ⚠ docker compose down 會留著 volume（資料還在），down -v 才會真的刪掉。
+    user: root
+    volumes:
+      - "account-data:/data"
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
 
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
@@ -153,6 +187,13 @@ services:
       #   ⚠ 這只改「計算假設」，不限制實際執行緒數。
       BPL_JVM_THREAD_COUNT: 50
 
+      # H2 改成檔案模式，寫進下面的 volume。完整說明見 account 那段。
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/loandb;AUTO_SERVER=true"
+
+    user: root
+    volumes:
+      - "loan-data:/data"
+
     # ⚠ loan 的 healthcheck 寫法跟 account / card 不一樣，因為它是 Buildpacks 產的。
     #   Paketo 預設的 run image（ubuntu-noble-run-tiny）走 distroless 路線，
     #   連 /bin/sh 都沒有，任何指令都跑不起來 → 永遠 unhealthy。
@@ -188,12 +229,35 @@ services:
       file: common.yml
       service: microservice-base
 
+    # H2 改成檔案模式，寫進下面的 volume。完整說明見 account 那段。
+    user: root
+    volumes:
+      - "card-data:/data"
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/carddb;AUTO_SERVER=true"
+
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
+
+
+# =============================================================================
+#  named volume 宣告
+#
+#  ⚠ 這一段跟 services: 同一層（最外層，不縮排）。
+#    上面服務寫了 "account-data:/data" 卻沒在這裡宣告的話，compose 直接拒絕：
+#        service "account" refers to undefined volume account-data
+#
+#  冒號後面留空 = 用預設設定（driver: local），位置交給 Docker 決定。
+#  compose 會自動加上專案名前綴，實際名稱是 springboot-microservices_account-data。
+# =============================================================================
+volumes:
+  account-data:
+  loan-data:
+  card-data:
 
 
 # =============================================================================
