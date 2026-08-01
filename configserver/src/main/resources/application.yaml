@@ -2,180 +2,110 @@ spring:
   application:
     name: configserver
 
-  # RabbitMQ 連線 —— 因為 pom 有 spring-cloud-starter-bus-amqp
-  #
-  # ⚠ 加了那個依賴之後，RabbitMQ 沒跑起來 configserver 就啟動不了
-  #   （binder 啟動時要建立 exchange 與 queue，連不上 broker 就掛）：
-  #      docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
-  #
-  # 🔑 configserver 為什麼需要 Bus？
-  #    不是為了「自己接收 refresh」—— 它的設定來自本檔案，不是 Config Server，
-  #    收到廣播也沒東西可更新。
-  #    真正的理由是為未來鋪路：裝上 spring-cloud-config-monitor 之後，
-  #    GitHub webhook 打進 /monitor，configserver 就能把 refresh 事件廣播給所有服務，
-  #    達成「git push 後全自動刷新」。那時候沒有 Bus 就送不出去。
-  #
-  # 這四行同樣可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
-  # 寫出來是為了讓依賴關係看得見，以及容器化時只改 host 一行：
-  #      SPRING_RABBITMQ_HOST: rabbitmq
+  # RabbitMQ 連線。configserver 需要 Bus 是為了「發送」—— /monitor 收到 GitHub
+  # webhook 後，靠 Bus 把 refresh 事件廣播給三個服務。
+  # 🔑 這四行可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
+  #    寫出來只是讓依賴關係看得見。容器裡由 compose 覆寫 SPRING_RABBITMQ_HOST: rabbitmq。
   rabbitmq:
     host: localhost
     port: 5672
     username: guest
     password: guest
 
-  # ===========================================================================
-  #  ⚠ git 後端「不用、也不能」靠 profile 指定
-  # ===========================================================================
-  #  Spring Cloud 沒有名為 git 的內建 profile。寫成
-  #      spring.profiles.active: git
-  #  只是啟用一個叫 git 的空 profile（它會去找 application-git.yaml，找不到就算了），
-  #  對後端選擇完全沒有影響 —— 而且不會有任何警告。
+  # ⚠ 這裡刻意「完全不寫 spring.profiles」—— git 是預設後端，不用也不能靠 profile 指定。
+  #   Spring Cloud 沒有名為 git 的內建 profile，寫 active: git 只是啟用一個空 profile，
+  #   對後端選擇毫無影響，而且不會有任何警告。
+  #   只有 native 是靠 profile 切換的（原始碼是 @Profile("native")）。
   #
-  #  真正的規則是：
-  #      不設 profile        → 走 git（這是預設後端）
-  #      spring.profiles.active: native → 走 native（讀 classpath / 檔案系統）
-  #  只有 native 是靠 profile 切換的（原始碼裡是 @Profile("native")）。
-  #
-  #  所以這裡刻意「完全不寫 spring.profiles」。
-  # ===========================================================================
-  #  ---- 要切回 native 後端時，取消註解下面兩行，並取消註解最下方的 native: 區塊 ----
-  #  profiles:
-  #    active: native
-  #  ⚠ 一旦設了 active: native，本檔案的 git 設定會被完全忽略（不會有任何警告）。
-  # ===========================================================================
+  #   ---- 要切回 native 後端時，取消註解下面兩行，並取消註解最下方的 native: 區塊 ----
+  #   （兩處都要，只做一半沒有效果）
+  #   profiles:
+  #     active: native
 
   cloud:
     bus:
       refresh:
-        # 不要讓 configserver 自己去處理收到的 refresh 廣播。
-        #
-        # 為什麼：它的設定來自本檔案，不是 Config Server，refresh 自己毫無意義
-        # （log 會出現 "Keys refreshed []"），卻會順帶噴一段很長的 WARN：
-        #
-        #     Cannot create default instance of ConfigServerHealthIndicator
-        #     for reset; skipping property reset
-        #     BeanInstantiationException: No default constructor found
-        #
-        # 原因是 refresh 過程中 ConfigurationPropertiesRebinder 會把所有
-        # @ConfigurationProperties bean 先「reset 成預設值」（需要無參建構子），
-        # 而 Config Server 內部的 ConfigServerHealthIndicator 沒有無參建構子
-        # → 建不出來 → 印 WARN 然後跳過。訊息本身就寫了 skipping，
-        # 功能沒壞、refresh 流程照樣走完 —— 純粹是雜訊。
-        #
-        # 🔑 這行「只」關掉接收端（RefreshListener），不影響發送端。
-        #    原始碼裡 RefreshBusEndpoint（負責發事件）在另一個沒有這個條件的
-        #    內部類別，所以之後裝 spring-cloud-config-monitor 做 GitHub webhook
-        #    廣播，一樣正常運作。
+        # 不讓 configserver 處理收到的 refresh 廣播 —— 它的設定來自本檔案，
+        # refresh 自己毫無意義（log 只會出現 "Keys refreshed []"），卻會順帶噴一段
+        # 很長的 WARN（ConfigServerHealthIndicator 沒有無參建構子，rebinder 建不出來）。
+        # 🔑 只關掉「接收端」，不影響 /monitor 的「發送」—— 兩者在原始碼裡是不同的
+        #    設定類別，只有接收端受這個開關控制。
         enabled: false
 
     config:
       server:
         git:
-          # ⚠ 用 HTTPS，不要用 SSH（git@github.com:...）。
-          #   容器裡沒有你的 SSH key，用 SSH 會卡在認證且錯誤訊息很不直觀。
-          #   public repo 走 HTTPS 不需要任何憑證。
+          # ⚠ 用 HTTPS 不要用 SSH —— 容器裡沒有你的 SSH key，會卡在認證。
           uri: https://github.com/tonysk0210/springboot-microservices
 
-          # 分支名（Config Server 術語叫 label）。新版預設已是 main，寫明比較保險。
-          default-label: main
+          default-label: main    # 分支名（Config Server 術語叫 label）
 
-          # ⚠ 只讀 repo 裡的 configyml/ 子目錄。
-          #   不設的話 Config Server 只看 repo 根目錄，configyml/account.yml 找不到
-          #   —— 而且不會報錯，只會回空的 propertySources。
+          # ⚠ 不設的話只會讀 repo 根目錄，configyml/account.yml 找不到 ——
+          #   而且不報錯，只回空的 propertySources。
           search-paths: configyml
 
-          # 本機 clone 出現雜物時強制覆蓋，避免 configserver 卡在無法 pull 的狀態
+          # 本機 clone 變髒時強制覆蓋，避免卡在無法 pull 的狀態
           force-pull: true
 
-          # 啟動時就 clone repo（預設 false = 等第一個請求才 clone）。
-          #
-          # 預設的懶惰行為有個很難查的問題：uri 或 search-paths 打錯字時，
-          # configserver 會「正常啟動」，直到 account 第一次來要設定才失敗 ——
-          # 而錯誤出現在 configserver 的 log 裡，你在 account 那邊只看到拿到 null。
-          # 設 true 就是 fail fast：clone 不成功就啟動失敗，問題當場暴露。
-          #
-          # 容器化之後還有第二個好處：搭配 healthcheck，容器變成 healthy 時代表
-          # repo 真的 clone 好了，depends_on: service_healthy 才名副其實。
+          # 啟動時就 clone（預設 false = 等第一個請求才 clone）。
+          # ⚠ 預設的懶惰行為很難查：uri 或 search-paths 打錯字時 configserver 會
+          #   「正常啟動」，直到有服務來要設定才失敗，而你在那邊只看到拿到 null。
+          #   設 true 就是 fail fast。容器化後還有第二個好處：容器變 healthy 時
+          #   代表 repo 真的 clone 好了，depends_on: service_healthy 才名副其實。
           clone-on-start: true
 
-          # 每次收到請求都會 git fetch（預設 refresh-rate: 0），所以你 push 之後
-          # 不必重啟 configserver。要減少對 GitHub 的請求可以設秒數：
-          # refresh-rate: 30
+          # 每次請求都會 git fetch（預設 refresh-rate: 0），所以 push 之後不必重啟。
+          # 要減少對 GitHub 的請求：refresh-rate: 30
 
-          # ⚠ private repo 才需要下面兩行（密碼欄填 GitHub token，不是登入密碼）。
-          #   正式環境不要寫死在這裡，改用環境變數：
-          #     SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME / ..._PASSWORD
+          # ⚠ private repo 才需要（password 填 GitHub token）。正式環境用環境變數：
+          #   SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME / ..._PASSWORD
           # username: tonysk0210
           # password: ${GIT_TOKEN}
 
-        # =====================================================================
-        #  native 後端（保留備用，目前停用）
-        # =====================================================================
-        #  這是最初練習用的方式：不需要 git repo，直接讀本機檔案。
-        #  要切回來的話，除了取消註解下面的 native: 區塊，還必須把上面
-        #  spring.profiles.active: native 一起取消註解 —— 只做一半沒有效果，
-        #  因為後端是由 profile 決定的，不是由這裡有沒有寫 native: 決定。
+        # ---- native 後端（保留備用，目前停用）--------------------------------
+        # 不需要 git repo，直接讀本機檔案。要切回來除了取消註解這段，還必須把
+        # 上面的 spring.profiles.active: native 一起取消註解。
         #
-        #  native: 和 git: 可以並存在檔案裡（互不干擾），差別只在哪個 profile 生效。
-        # ---------------------------------------------------------------------
-        # native:
-        #     # classpath:/config 對應到 configserver/src/main/resources/config/
-        #     # 裡面的 account.yml / loan.yml / card.yml
-        #     #
-        #     # ⚠ classpath 模式的檔案會被打包進 jar，改了設定要重新 package
-        #     #   ——這樣就失去 Config Server 最大的好處，只適合最初的練習。
-        #   search-locations: "classpath:/config"
+        # ⚠ 取消註解時注意兩件事：
+        #   1. native: 要跟 git: 同一層（8 個空格），不能縮成 git: 的子項目
+        #   2. 下面兩行 search-locations「二選一」，兩行都留會是同名 key，
+        #      YAML 直接解析失敗（found duplicate key search-locations）
         #
-        #     # 改讀磁碟目錄：改完存檔不用重啟 configserver
-        #     #（NativeEnvironmentRepository 每次請求都會重讀 search-locations）
-        #     # ⚠ 這是 Windows 主機路徑，容器裡不存在。要在容器用得靠 bind mount
-        #     #   把資料夾掛進去，並改成容器內路徑（例如 file:///config）。
-        #   # search-locations: "file:///D:/Fork/github/springboot-microservices/configyml"
+        #   classpath:/config   檔案打包進 jar → 改設定要 package + 重建 image + 重啟容器 （等於失去「改設定不用重新部署」這個核心價值，只適合最初練習）
+        #   file:///磁碟路徑     存檔就生效，configserver 不用重啟
+        #
+        #   ⚠ 但不管哪一種，三個服務都還是要 refresh —— 客戶端只在啟動時抓一次設定，跟後端是什麼完全無關。
+        #   ⚠ Windows 路徑在容器裡不存在，要用 bind mount 把主機資料夾對應進去，並改成容器內路徑：
+        #        volumes: ["D:/.../configyml:/config"]
+        #        search-locations: "file:///config"
+        #
+#         native:
+#           search-locations: "classpath:/config"
+#           # search-locations: "file:///D:/Fork/github/springboot-microservices/configyml"
 
 server:
-  port: 8071
-  # 8071 不能省 —— 預設 8080 會跟 account 撞，後啟動的那個會直接失敗
-  # （Port 8080 was already in use）。
+  port: 8071        # ⚠ 不能省，預設 8080 會跟 account 撞
 
-# ---------------------------------------------------------------------------
+# =============================================================================
 #  設定值加密
-#  金鑰不寫在這裡（本檔案會進 git），改由環境變數 ENCRYPT_KEY 提供，實際值在
-#  專案根目錄的 .env（已 gitignore）。操作步驟與指令見 .env.example。
+#  金鑰不寫在這裡（本檔案會進 git），改由環境變數 ENCRYPT_KEY 提供，
+#  實際值在專案根目錄的 .env。操作步驟見 .env.example。
 #
 #  用法：POST /encrypt 拿密文 → 貼進 configyml/*.yml 寫成 '{cipher}密文'
 #        （單引號不能省）→ push。configserver 供應設定時自動解密，
 #        客戶端收到明文，不需要知道金鑰、也不用改程式碼。
-#
 #  ⚠ 換金鑰的話舊密文全部解不開，沒有輪替機制。
 #  ⚠ /encrypt 和 /decrypt 是公開的 POST 端點，正式環境要保護或關掉。
-# ---------------------------------------------------------------------------
-
-# =============================================================================
-#  ⚠ git 後端讀的是「GitHub 上的內容」，不是你磁碟上的工作目錄
-# =============================================================================
-#  所以改完 configyml/*.yml 一定要 commit + push，否則 Config Server 拿到的
-#  還是舊版本。這是換成 git 後最容易踩的坑：檔案明明改了，端點卻沒變。
+# -----------------------------------------------------------------------------
+#  ⚠ git 後端讀的是「GitHub 上的內容」，不是磁碟上的工作目錄 ——
+#    改完 configyml/*.yml 一定要 commit + push，否則端點拿到的還是舊版本。
+#    這是換成 git 後最容易踩的坑：檔案明明改了，端點卻沒變。
 #
-#  想在不 push 的情況下測試，可以暫時指向本機的 git repo：
-#      uri: file:///D:/Fork/github/springboot-microservices
-#  但它讀的仍然是「已 commit 的內容」，不是工作目錄，所以至少要 commit。
-#  而且這個路徑在容器裡不存在，只能本機用。
+#  ⚠ 專案裡有「兩份」設定檔，別改錯：
+#      configyml/                              ← git 後端讀這份（目前生效）
+#      configserver/src/main/resources/config/ ← native 後端讀這份（備用，不生效）
 #
-#  ---------------------------------------------------------------------------
-#  驗證（configserver 跑起來後直接開瀏覽器）：
-#      http://localhost:8071/account/default
-#      http://localhost:8071/loan/default
-#      http://localhost:8071/card/default
-#
-#  回傳 JSON 的 propertySources[].name 會顯示實際來源，git 後端長這樣：
-#      https://github.com/tonysk0210/springboot-microservices/configyml/account.yml
-#  如果看到的是 classpath:/config/account.yml，代表還在走 native 後端。
-#
-#  ⚠ 現在有「兩份」設定檔，用途不同，別改錯：
-#      configyml/                             ← git 後端讀這份（目前生效），要 push 才算數
-#      configserver/src/main/resources/config/ ← native 後端讀這份（保留備用，目前不生效）
-#
-#    最容易浪費時間的情況：改了 resources/config/ 那一份，然後發現端點沒變 ——
-#    因為現在跑的是 git 後端，它只認 GitHub 上的 configyml/。
+#  驗證：http://localhost:8071/account/default
+#        propertySources[].name 顯示 GitHub URL   → git 後端 ✅
+#        顯示 classpath:/config/account.yml       → 還在走 native ❌
 # =============================================================================
