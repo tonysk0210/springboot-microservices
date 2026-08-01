@@ -146,10 +146,27 @@ services:
       #   ⚠ 這只改「計算假設」，不限制實際執行緒數。
       BPL_JVM_THREAD_COUNT: 50
 
-    # ⚠ loan 刻意沒有 healthcheck —— Buildpacks 的 image 是 distroless 風格，
-    #   實測過 /bin/sh、wget、curl 全都不存在，寫什麼指令都會失敗變成 unhealthy。
-    #   沒有服務 depends_on loan，所以無影響。要判斷它好了沒，從主機打
-    #   http://localhost:8090/actuator/health。
+    # ⚠ loan 的 healthcheck 寫法跟 account / card 不一樣，因為它是 Buildpacks 產的。
+    #   Paketo 預設的 run image（ubuntu-noble-run-tiny）走 distroless 路線，
+    #   連 /bin/sh 都沒有，任何指令都跑不起來 → 永遠 unhealthy。
+    #   解法是在 loan/pom.xml 把 runImage 換成 paketobuildpacks/run-noble-base，
+    #   換完有了 bash —— 但「還是沒有 wget 和 curl」，所以不能照抄上面兩個服務。
+    #
+    #   改用 bash 內建的 /dev/tcp 自己講 HTTP：
+    #     exec 3<>/dev/tcp/主機/埠  bash 開一條 TCP 連線，綁到檔案描述子 3
+    #     echo -e "..." >&3         把 HTTP 請求寫進去（\r\n 是 HTTP 規定的換行）
+    #     grep -q ... <&3           讀回應，找到 "status":"UP" 就 exit 0
+    #
+    # ⚠ 一定要寫 "CMD", "bash" 不能用 CMD-SHELL —— CMD-SHELL 走 /bin/sh，
+    #   而這個 image 的 /bin/sh 是 dash，dash 沒有 /dev/tcp 這個功能。
+    # ⚠ 外層用 YAML 單引號，裡面的 \r\n 才會原封不動交給 echo -e 去解釋；
+    #   用雙引號的話 YAML 會先把它換成真正的換行字元。
+    healthcheck:
+      test: [ "CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8090 && echo -e "GET /actuator/health HTTP/1.0\r\n\r" >&3 && grep -q "\"status\":\"UP\"" <&3' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   # ---------------------------------------------------------------------------
   #  card —— 信用卡資料
@@ -310,7 +327,7 @@ services:
 #                          named volume        bind mount
 #      檔案在哪             WSL2 裡，Docker 管   你的 D 槽
 #      檔案總管看得到        ❌                  ✅
-#      DBeaver 開 .mv.db    ❌                  ✅
+#      DBeaver 開 .mv.db   ❌                  ✅
 #      IO 效能              較好                 較差（跨 Windows/WSL2 檔案系統）
 #      權限問題             較少                 較容易出現
 #      適合                 只想讓資料留著        想直接翻檔案、用工具開

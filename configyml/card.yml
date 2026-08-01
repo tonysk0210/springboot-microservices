@@ -11,7 +11,7 @@
 # =============================================================================
 
 card:
-  message: "歡迎使用信用卡相關 API（來自 configserver / git / rabbit MQ / webhook-monitor / Docker container）"
+  message: "歡迎使用信用卡相關 API（來自 configserver / git / rabbit MQ / webhook-monitor / run from Docker container）"
 
   contact-details:
     name: "Tony Shangkuan - Developer"

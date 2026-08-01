@@ -155,9 +155,6 @@
                           容器跑起來才載入。想確認有沒有生效要看 log：
                               docker logs loan | Select-String "jdbc:h2"
 
-                        ⚠ 這種 image 裡面幾乎沒有任何工具 —— 實測連 sh、wget、curl 都找不到。
-                          後果有兩個：docker exec 進不去除錯，compose 也做不了 healthcheck。
-
                         ⚠ Paketo 會自己算 JVM 該用多少記憶體，而且會蓋掉我們設的
                           MaxRAMPercentage。在 700m 的上限下它只分 46MB 給 heap，
                           服務啟動到一半就會 OOM 死掉。
@@ -165,6 +162,24 @@
                     -->
                     <image>
                         <name>anthonysk/${project.artifactId}:${project.version}</name>
+
+                        <!--
+                            Buildpacks 產出的 image = builder（建置環境）+ run image（執行環境）。
+                            預設的 run image 是 ubuntu-noble-run-tiny，走 distroless 路線，
+                            裡面「只有 JRE 和憑證」—— 連 /bin/sh、wget、curl 都沒有。
+                            後果：docker exec 進不去除錯，compose 也做不了 healthcheck
+                            （healthcheck 是在容器裡執行指令，沒有執行檔就什麼都跑不了）。
+
+                            換成 base 版本，多了 bash 和一般 Ubuntu 的基本工具。
+                            ⚠ 要跟 builder 同一條線 —— builder 是 builder-noble-java-tiny，
+                              所以 run image 也要挑 noble 的，混用 jammy 會失敗。
+                            ⚠ base 仍然「沒有」wget 和 curl（實測過），所以 healthcheck 不能
+                              照抄其他服務的寫法，要改用 bash 的 /dev/tcp。寫法在 compose.yml。
+                            ⚠ 代價：基底從 10MB 變成 62MB。想連 curl 都要有就用
+                              paketobuildpacks/run-noble-full，但那個大很多。
+                        -->
+                        <runImage>paketobuildpacks/run-noble-base:latest</runImage>
+
                         <env>
                             <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:h2:mem:loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
                             <!-- BP_OCI_* 會變成 image 上的標籤（label），純粹是給人看的資訊，
