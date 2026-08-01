@@ -67,6 +67,28 @@ services:
       # 這個開關讓 optional: 失效，連不上就 fail fast。
       SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
 
+      # ── H2 網頁管理介面（開發用）─────────────────────────────────────────
+      # 用瀏覽器開 http://localhost:8080/h2-console（loan 8090、card 9000），
+      # 連線資訊：
+      #     JDBC URL  jdbc:h2:file:/data/accountdb   （loandb / carddb）
+      #     User      SA
+      #     Password  留空
+      #
+      # 🔑 為什麼要在容器裡開這個：H2 是檔案模式，檔案在 volume 裡（WSL2），
+      #    Windows 上的 DBeaver 看不到那個路徑。Console 跑在容器內部，
+      #    所以它看得到 /data —— 這是唯一能「邊跑邊看資料」的方式。
+      #
+      # ⚠ 兩個都要設，只設 ENABLED 會被擋掉，畫面出現：
+      #       Sorry, remote connections ('webAllowOthers') are disabled on this server.
+      #   原因：H2 Console 只接受「本機」連線，而你的瀏覽器在 Windows，
+      #   請求經 Docker 轉發後，容器看到的來源是閘道 IP（172.18.0.1）不是 127.0.0.1。
+      #   在 IntelliJ 跑時不用設第二個，因為那時瀏覽器和程式真的在同一台機器上。
+      #
+      # ⚠ 這兩行刻意放 compose 不放 application.yaml —— WEB_ALLOW_OTHERS 等於
+      #   把沒有密碼的資料庫對外開放，只該存在於本機開發的 compose。
+      SPRING_H2_CONSOLE_ENABLED: "true"
+      SPRING_H2_CONSOLE_SETTINGS_WEB_ALLOW_OTHERS: "true"
+
     # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
     #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
     #   不再需要 Bus，遞移關係消失時才不會安靜地壞掉。
