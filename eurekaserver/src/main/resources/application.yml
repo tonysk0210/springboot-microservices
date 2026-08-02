@@ -1,0 +1,92 @@
+# =============================================================================
+#  Eureka Server —— 服務註冊中心（電話簿）
+#
+#  三個服務啟動時來這裡「登記自己」，要呼叫別人時來這裡「查地址」，
+#  就不必再把 http://loan:8090 這種位址寫死在程式或 compose 裡。
+#
+#  儀表板：http://localhost:8070
+#
+#  專案 port 分配（別再撞）：
+#      5672 / 15672  rabbitmq（AMQP / 管理介面）
+#      8070          eurekaserver   ← 本服務
+#      8071          configserver
+#      8080          account
+#      8090          loan
+#      9000          card
+# =============================================================================
+
+server:
+  # ⚠ 不能省，預設 8080 會跟 account 撞。
+  # 🔑 這個值下面的 defaultZone 會引用，改這裡就好，不用改兩個地方。
+  port: 8070
+
+spring:
+  application:
+    name: eurekaserver
+
+  # 跟其他服務同一套寫法：本機跑 → localhost，容器跑 → configserver
+  # （容器裡由 common.yml 的 CONFIGSERVER_HOST 覆寫）。
+  #
+  # ⚠⚠ 絕對不要把 server.port / eureka.* 放進 configyml/eurekaserver.yml ⚠⚠
+  #   Config Server 的值「贏過」本檔案，等於遠端可以偷改本服務的 port，
+  #   而且 optional: 讓它失敗時完全無聲 —— 連不上 Config Server 就退回 8080，
+  #   撞上 account，log 卻不會說明原因。
+  #   🔑 判準：「網路拓撲」（port / hostname / service-url）屬於本檔案 + compose，
+  #            「業務內容」才放 Config Server。
+  #            eurekaserver 是純基礎設施，其實沒有任何設定需要遠端下發。
+  config:
+    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+
+# =============================================================================
+#  單機模式設定
+#
+#  🔑 為什麼「Eureka Server」需要一組 eureka.client.* 設定？
+#     因為 Eureka 天生是設計成叢集的 —— 兩台 Server 之間要互相複製名冊
+#     （peer replication），而 Netflix 實作這件事的方式，就是讓每台 Server
+#     內建一個 Client，去把自己註冊給對方、也去跟對方要名冊。
+#     所以 eureka-server 這個 starter 會連 eureka-client 一起拉進來。
+#     我們只跑一台，要把那個內建 client 整組關掉。
+# =============================================================================
+eureka:
+  instance:
+    # 自報家門用的名字（defaultZone 引用它，儀表板也顯示它）。
+    # ⚠ 容器化時要由 compose 設成服務名：EUREKA_HOST: eurekaserver
+    #   否則客戶端拿到的位址是 localhost，而容器裡的 localhost 是容器自己 ——
+    #   跟 SPRING_RABBITMQ_HOST 是同一個坑。
+    hostname: ${EUREKA_HOST:localhost}
+
+  client:
+    # 不把「我自己」登記進名冊。預設 true，儀表板會多列一筆自己，只是雜訊。
+    register-with-eureka: false
+
+    # 不去跟別台下載名冊。預設 true，會每 30 秒去抓一次 —— 但根本沒有別台。
+    fetch-registry: false
+
+    service-url:
+      # 「別台 Eureka 在哪」的清單。展開後是 http://localhost:8070/eureka/，就是自己。
+      #
+      # 🔑 為什麼指向自己？Eureka 拿這份清單算 peer，並把「等於我自己」的項目濾掉，
+      #    濾完是空的 → peer 清單為空 → 不會試圖跟任何人同步。
+      #
+      # ⚠ 不寫這行的話預設是 http://localhost:8761/eureka/。本服務跑在 8070，
+      #   8761 不等於自己 → 被當成一台真的 peer → 每隔幾秒噴一次：
+      #       TransportException: Cannot execute request on any known server
+      #
+      # ⚠⚠ defaultZone 必須是駝峰式 ⚠⚠
+      #   寫成 default-zone「不會報錯，只會靜靜失效」，退回 8761 開始噴錯。
+      #   原因：它是 Map<String,String> 的 key，不是屬性名，Spring 的寬鬆綁定
+      #   （fetch-registry ↔ fetchRegistry 那套）管不到 Map 的 key。
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+
+# =============================================================================
+#  刻意「沒有」的東西
+#
+#  management.endpoints.web.exposure.include: "*"
+#      預設就開放 /actuator/health，compose 的 healthcheck 只需要這一個。
+#      "*" 會連 /actuator/env（印出所有設定）、/actuator/heapdump 一起開，是資安地雷。
+#
+#  management.endpoint.health.probes.enabled（liveness / readiness）
+#      那是給 Kubernetes 的探針，Spring Boot 偵測到跑在 K8s 上時會自動開。
+#      現在跑 Docker Compose，用的是 Docker 自己的 healthcheck: 機制，不需要。
+#      等課程走到 K8s、開始寫 deployment.yaml 的 livenessProbe 時再補。
+# =============================================================================
