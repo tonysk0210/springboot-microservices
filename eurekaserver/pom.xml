@@ -98,6 +98,45 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- Jib 建 image（不用寫 Dockerfile，跟 configserver / card 同一套）：
+                     ./mvnw compile jib:dockerBuild
+                 ⚠ compile 不能省，Jib 不會自己編譯。漏掉的錯誤訊息是
+                   Obtaining project build output files failed。 -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <from>
+                        <!-- 跟其他服務同一個基底：alpine 有 wget（compose 的 healthcheck 要用）
+                             和 sh（進去除錯要用）。
+                             docker:// = 用本機已經有的，不去網路抓（理由見 card/pom.xml）。
+                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
+                        <image>docker://eclipse-temurin:25-jre-alpine</image>
+                    </from>
+                    <to>
+                        <image>anthonysk/${project.artifactId}:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <!-- 等同 Dockerfile 的 EXPOSE -->
+                            <port>8070</port>
+                        </ports>
+                        <!-- 刻意不設 <environment>：
+                             EUREKA_HOST 在容器裡要是服務名 eurekaserver、本機要是 localhost，
+                             CONFIGSERVER_HOST 同理 —— 都屬於「網路拓撲」，由 compose 在執行期
+                             提供，不該寫死進 image。 -->
+                        <!-- 不要用 root 執行 -->
+                        <user>nobody</user>
+                        <labels>
+                            <org.opencontainers.image.title>eurekaserver</org.opencontainers.image.title>
+                            <org.opencontainers.image.description>Spring Cloud Netflix Eureka Server（服務註冊中心，單機模式）</org.opencontainers.image.description>
+                            <org.opencontainers.image.authors>Tony Shangkuan</org.opencontainers.image.authors>
+                            <org.opencontainers.image.source>https://github.com/tonysk0210/springboot-microservices</org.opencontainers.image.source>
+                        </labels>
+                    </container>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
