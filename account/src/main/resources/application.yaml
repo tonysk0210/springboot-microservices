@@ -6,6 +6,11 @@ logging:
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
     # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面的 jpa.show-sql）
+
+    # Feign 呼叫的完整請求／回應。⚠ 必須是 DEBUG —— Feign 的 log 只在這個層級輸出，
+    #   而且 logger 名稱是「介面所在的套件」，不是 feign.* 這種函式庫名稱。
+    #   實際印什麼由下面的 spring.cloud.openfeign...loggerLevel 決定，兩個都要設。
+    com.example.account.service.client: DEBUG
   pattern:
     # 時間(綠) 等級(藍) [執行緒](紅) logger名稱(黃) - 訊息
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
@@ -33,6 +38,27 @@ spring:
   #        程式其實正常（被 optional: 忽略了），但假警報會蓋掉真警報。
   config:
     import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+
+  cloud:
+    openfeign:
+      client:
+        config:
+          # default = 套用到所有 Feign client。要只調某一個就把 default 換成 @FeignClient 的 name（loan / card）—— 這就是那個 name 的用途之一。
+          default:
+            # none    不印（預設）
+            # basic   方法、URL、狀態碼、耗時          ← 正式環境合適
+            # headers basic + 請求／回應的標頭
+            # full    headers + 完整 body             ← 學習／除錯用
+            #
+            # ⚠ full 會把回應 body 整包印出來。正式環境要降成 basic 或 none，
+            #   否則個資、金額全進 log。
+            # ⚠ 只設這裡沒用，上面 logging.level 那個套件必須是 DEBUG。
+            loggerLevel: full
+
+            # 順便設逾時。⚠ 預設值很寬鬆（連線 10 秒、讀取 60 秒），
+            #   對方卡住時你的執行緒也跟著卡 60 秒，連鎖拖垮很容易發生。
+            connect-timeout: 2000
+            read-timeout: 5000
 
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
