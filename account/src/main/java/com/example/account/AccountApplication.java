@@ -4,6 +4,7 @@ import com.example.account.dto.AccountContactInfoDto;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 
 // OpenAPI 文件的封面資料放在 config/OpenApiConfig
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 @EnableJpaAuditing(auditorAwareRef = "auditAwareImpl")
 // 把 @ConfigurationProperties 類別註冊成 bean，否則注入時會找不到
 @EnableConfigurationProperties(AccountContactInfoDto.class)
+@EnableFeignClients
 public class AccountApplication {
 
     public static void main(String[] args) {

@@ -120,6 +120,51 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
+        <!-- OpenFeign —— 宣告式 HTTP 客戶端。你「只寫介面」，實作由 Feign 動態產生：
+                 @FeignClient(name = "loan")
+                 public interface LoanFeignClient {
+                     @GetMapping("/api/fetch")
+                     ResponseEntity<LoanDto> fetchLoan(@RequestParam String mobileNumber);
+                 }
+             之後 @Autowired 進來直接呼叫方法，不用碰 URL、不用組請求、不用解析 JSON。
+
+             ⚠ 必須在主類別加 @EnableFeignClients，否則介面完全不會被掃到 ——
+               沒有錯誤訊息，只有注入時的 NoSuchBeanDefinitionException。
+               🔑 這點跟上面的 Eureka Client「剛好相反」：@EnableEurekaClient 已經被移除、
+                  加了編譯不過；@EnableFeignClients 則實測仍存在於 jar 內，而且非加不可。
+
+             🔑 Feign、LoadBalancer、Eureka 是「三層」，不是一套綁死的東西：
+                     ① Feign             決定「怎麼發出請求」
+                     ② LoadBalancer      把服務名變成位址、挑一台實例
+                     ③ DiscoveryClient   名冊來源（Eureka / Consul / Nacos / K8s）
+                Feign 只認識 ②，② 只認識 ③ 這個介面。所以哪天把 Eureka 換成 Consul，
+                @FeignClient 那行完全不用動。
+                ⚠ ② 的依賴不是這個 starter 提供的，是隨 eureka-client 進來的。
+
+             🔑 name 和 url 決定「要不要走服務發現」，差一個參數而已：
+                 @FeignClient(name = "loan")                        → 走 ②③，去名冊查
+                 @FeignClient(name = "gh", url = "https://api...")  → 直接打，跳過 ②③
+                 後者等於把 Feign 當成純粹的宣告式 HTTP 客戶端，拿來呼叫任何外部 API。
+
+             ⚠⚠ 官方已宣告本專案 feature-complete（Spring Cloud 2022.0.0 起）⚠⚠
+                 README 原文：「we're now treating the Spring Cloud OpenFeign project as
+                 feature-complete. We are only going to be adding bugfixes ... We suggest
+                 migrating over to Spring HTTP Service Clients instead.」
+                 白話：只修 bug、不加新功能，建議新專案改用 Spring 內建的
+                 @HttpExchange / @ImportHttpServices（Boot 4.1 已內建，零額外依賴，
+                 而且 spring-cloud-commons 5.0.2 也已補上負載平衡與斷路器的整合）。
+                 這裡仍用 Feign 的理由：課程後續的斷路器 / 重試 / fallback 都接在它上面，
+                 而且既有的 Spring Cloud 專案幾乎清一色是它，看得懂是必要技能。
+
+             帶進來的東西（實測依賴樹）：
+                 spring-cloud-openfeign-core:5.0.2
+                 io.github.openfeign:feign-core:13.6.1
+                 io.github.openfeign:feign-slf4j:13.6.1
+                 io.github.openfeign:feign-form(-spring):13.6.1 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
