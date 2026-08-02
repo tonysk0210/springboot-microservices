@@ -61,6 +61,17 @@ services:
       #   每次啟動和每次 refresh 都噴一輪 WARN。程式沒壞，但假警報很礙事。
       CONFIGSERVER_HOST: configserver
 
+      # 服務註冊中心的位址。application.yaml 寫的是
+      #     defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
+      # 本機跑 → localhost，容器跑 → 這一行。
+      #
+      # ⚠ 整條包成一個變數，不要拆成 ${EUREKA_HOST}:${SERVER_PORT} ——
+      #   SERVER_PORT 會跟 Spring 自己的 server.port 環境變數撞名，設了會連帶
+      #   把 Eureka 的位址一起改掉，然後註冊一路失敗而 log 不說明原因。
+      #
+      # ⚠ 結尾的 /eureka/ 不能省，那是 Eureka 的 API 路徑，不是根路徑。
+      EUREKA_URL: http://eurekaserver:8070/eureka/
+
       # application.yaml 的 import 帶著 optional:（本機單獨跑某個服務時方便），
       # 但容器裡不該容忍 —— depends_on 已保證 configserver 先 healthy，
       # 這時還連不上就是真的有問題，不該安靜地啟動成「設定全是 null」。
@@ -92,8 +103,14 @@ services:
     # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
     #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
     #   不再需要 Bus，遞移關係消失時才不會安靜地壞掉。
+    #
+    # 🔑 eurekaserver 那項是「軟依賴硬寫」：Eureka 連不上服務照樣能啟動
+    #    （只是背景每 30 秒重試註冊）。寫出來的好處是啟動後就是可用狀態，
+    #    不會有「服務起來了但彼此還找不到對方」的空窗期。
     depends_on:
       rabbitmq:
         condition: service_healthy
       configserver:
+        condition: service_healthy
+      eurekaserver:
         condition: service_healthy

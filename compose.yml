@@ -1,11 +1,13 @@
 # =============================================================================
-#  五個容器的編排：改成一行 docker compose up -d
+#  六個容器的編排：改成一行 docker compose up -d
 #
-#    rabbitmq      Bus 的訊息中介，其他四個都連它
-#    configserver  設定中心，三個服務向它拿設定
+#    rabbitmq      Bus 的訊息中介，configserver 和三個服務都連它
+#    configserver  設定中心，其他四個向它拿設定
+#    eurekaserver  服務註冊中心，三個服務在此登記、互相查找
 #    account / loan / card
 #
-#  啟動順序（rabbitmq → configserver → 三個服務）由 depends_on + healthcheck 保證。
+#  啟動順序（rabbitmq → configserver → eurekaserver → 三個服務）
+#  由 depends_on + healthcheck 保證。
 #  共用設定（JVM 參數、環境變數、記憶體上限、depends_on）抽在 common.yml，用 extends 繼承。
 #
 #  ⚠ 執行前專案根目錄要有 .env（裡面要有 ENCRYPT_KEY），沒有的話 compose 會直接失敗。
@@ -105,6 +107,58 @@ services:
       # ⚠ 60s：configserver 設了 clone-on-start，啟動時要先 clone 整個 GitHub repo，
       #   比其他服務慢。給太短會一直被判 unhealthy，三個服務就永遠等不到。
       start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  #  eurekaserver —— 服務註冊中心（單機模式）
+  #  儀表板 http://localhost:8070
+  # ---------------------------------------------------------------------------
+  eurekaserver:
+    # image 由 Jib 建：cd eurekaserver && ./mvnw compile jib:dockerBuild
+    image: anthonysk/eurekaserver:0.0.1-SNAPSHOT
+    container_name: eurekaserver-ms
+    ports:
+      - "8070:8070"
+
+    # ⚠ 只繼承 resource-limits，不用 configserver-base ——
+    #   那一層會帶 SPRING_RABBITMQ_HOST 和 depends_on rabbitmq，
+    #   但 eurekaserver 沒有 spring-cloud-starter-bus-amqp，用不到 RabbitMQ。
+    #   多綁一個依賴只會讓啟動更慢、故障面更大。
+    extends:
+      file: common.yml
+      service: resource-limits
+
+    environment:
+      # configserver-base 那層有這行，這裡沒繼承所以要自己補。
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+
+      # ⚠⚠ 最關鍵的一行 ⚠⚠
+      #   application.yml 寫的是 hostname: ${EUREKA_HOST:localhost}，
+      #   不設的話 Eureka 會用 localhost 算出自己的 defaultZone。
+      #   單機模式下它「還是會動」（peer 清單照樣是空的），但儀表板顯示的
+      #   自身位址會是 localhost，之後做 peer replication 時一定出錯。
+      EUREKA_HOST: eurekaserver
+
+      # 向 configserver 拿 configyml/eurekaserver.yml。
+      # ⚠ 目前那個檔案是空的，這趟往返拿回零個設定 —— 純粹是為了跟其他服務
+      #   寫法一致。哪天真的不需要，把 pom 的 spring-cloud-starter-config、
+      #   application.yml 的 config.import、這行、下面的 depends_on 一起拿掉，
+      #   eurekaserver 就完全不依賴任何人。
+      CONFIGSERVER_HOST: configserver
+
+    # ⚠ 這裡刻意「不設」SPRING_CLOUD_CONFIG_FAIL_FAST。
+    #   三個微服務設 true 是因為它們真的需要遠端設定（拿不到就等於壞了）；
+    #   eurekaserver 拿到的是空的，fail fast 只會讓它平白多一個死因。
+    depends_on:
+      configserver:
+        condition: service_healthy
+
+    healthcheck:
+      # Jib + alpine 基底 → 有 BusyBox wget，寫法跟 configserver / account / card 相同。
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8070/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   # ---------------------------------------------------------------------------
   #  account —— 帳戶與客戶資料
@@ -305,12 +359,13 @@ volumes:
 #
 #  ── 先建 image（本檔案不負責建，改過程式碼一定要重跑對應那行）─────────────
 #  cd configserver; ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd eurekaserver; ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
 #  cd loan;         ./mvnw spring-boot:build-image                       （Buildpacks）
 #  cd card;         ./mvnw compile jib:dockerBuild                       （Jib）
 #
 #  ⚠ 本機若還有 IntelliJ / mvnw 跑著同樣的服務，port 會衝突
-#    （8071 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
+#    （8070 / 8071 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
 #
 #  ── 跑 ────────────────────────────────────────────────────────────────────
 #  docker compose up -d              全部啟動
@@ -330,6 +385,7 @@ volumes:
 #  ── 主機端可開的網址 ──────────────────────────────────────────────────────
 #    http://localhost:8080/swagger-ui/index.html   account（8090 loan、9000 card）
 #    http://localhost:8071/account/default         configserver 提供給 account 的設定
+#    http://localhost:8070                         Eureka 儀表板（三個服務都該在上面）
 #    http://localhost:15672                        RabbitMQ 管理介面
 #
 #  ⚠ 改了程式碼、重建 image 之後一定要再 up 一次 —— 已在跑的容器不會自動換。
