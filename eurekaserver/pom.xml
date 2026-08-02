@@ -39,6 +39,36 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
+        <!-- Eureka Server —— 註冊中心本體。提供兩樣東西：
+                 /eureka/*    客戶端註冊與查詢用的 REST API（機器在用）
+                 /            儀表板網頁（人在看，http://localhost:8070）
+
+             ⚠ 必須搭配 @EnableEurekaServer（見 EurekaserverApplication）。
+               🔑 這點跟 client 端剛好相反 —— client 的 @EnableEurekaClient 在 5.0.2
+                  已被移除、加了編譯不過；server 這個註解則「還是必要的」，
+                  少了它服務照樣啟動，但 8070 上什麼都沒有。
+
+             ⚠ 它內含一份 eureka-client（Eureka 天生設計成叢集，每台 Server 靠內建的
+               client 去跟別台互相複製名冊）。我們只跑一台，所以 application.yml 要用
+               eureka.client.register-with-eureka / fetch-registry: false 把它關掉。
+               不關的話會一直嘗試連 localhost:8761 並噴 TransportException。
+
+             🔑 它會自己帶進 spring-boot-starter-web 和 spring-boot-starter-freemarker
+                （儀表板是 Freemarker 樣板寫的），所以本 pom 不用另外加 web starter。
+                另外也帶進 spring-cloud-starter-loadbalancer 和 Jersey 3。
+
+             ⚠ 啟動時這兩則訊息都來自這條依賴，是雜訊不是錯誤：
+                 WARNING: sun.misc.Unsafe::objectFieldOffset ... by xstream
+                     Eureka 用 XStream 做 XML 序列化，它在 Java 25 上碰了即將移除的
+                     Unsafe API。只能等 XStream 更新，無法從這裡消掉。
+                 INFO: Failed to set up a Bean Validation provider
+                     classpath 上沒有 hibernate-validator。Eureka Server 用不到，
+                     不用為了消掉它去加 spring-boot-starter-validation。
+
+             ⚠ 傳遞依賴 com.netflix.eureka:eureka-client:2.0.6 把 httpclient 釘死在
+               4.5.3（CVE-2020-13956，URI 解析問題，CVSS 5.3）。Spring Boot 的 BOM
+               只管 httpclient5，管不到 4.x 這條線。要消掉掃描器警告就在下方
+               dependencyManagement 補一筆 httpclient:4.5.14（純修補版，API 相容）。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>

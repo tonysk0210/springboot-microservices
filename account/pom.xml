@@ -93,6 +93,33 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
+        <!-- Eureka Client —— 向註冊中心（http://localhost:8070）報到。
+             啟動時做兩件事：把自己登記上去、把整份名冊抓回本機快取（預設 30 秒更新
+             一次），之後呼叫別的服務就用服務名而不必寫死 http://loan:8090。
+
+             ⚠ 必須搭配 application.yaml 的 eureka.client.service-url.defaultZone。
+               沒設會退回預設的 localhost:8761，然後每隔幾秒噴一次
+               「Cannot execute request on any known server」——
+               而且那是 WARN 不是啟動失敗，很容易被當成雜訊忽略掉。
+
+             ⚠ 不要加 @EnableEurekaClient —— 這個註解在 spring-cloud-netflix 5.0.2
+               裡「已經不存在」（實測 jar 內找不到），加了直接編譯不過。
+               @EnableDiscoveryClient 雖然還在，但從 Spring Cloud 2020.0 起也不需要了：
+               classpath 上有這個 starter 就自動啟用。舊教材幾乎都還在叫你加。
+
+             🔑 它會順便帶進 spring-cloud-starter-loadbalancer（實測確認），
+                所以之後要做客戶端負載平衡不用再加依賴，@LoadBalanced 直接可用。
+                這也是 Ribbon 退場後的替代品。
+
+             ⚠ 它的傳遞依賴 com.netflix.eureka:eureka-client:2.0.6 把 httpclient
+               釘死在 4.5.3（CVE-2020-13956，URI 解析問題，CVSS 5.3）。
+               Spring Boot 的 BOM 只管 httpclient5，管不到 4.x 這條線，所以不會自動
+               升級。要消掉掃描器的警告，在下方 dependencyManagement 補一筆
+               org.apache.httpcomponents:httpclient:4.5.14 即可（純修補版，API 相容）。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

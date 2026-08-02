@@ -77,6 +77,51 @@ spring:
       mode: always
       schema-locations: classpath:/sql/schema.sql
 
+# =============================================================================
+#  Eureka Client —— 向註冊中心報到
+#
+#  啟動時做兩件事：把自己登記上去、把整份名冊抓回本機快取。
+#  之後 account / loan 要呼叫 card 就不必寫死 http://card:9000，
+#  改用服務名（= spring.application.name，儀表板上顯示成大寫 CARD）。
+#
+#  儀表板：http://localhost:8070
+#  ⚠⚠ card/pom.xml 目前「還沒有」spring-cloud-starter-netflix-eureka-client ⚠⚠
+#     所以這整段現在是「寫了但不生效」—— 不會註冊、也不會有任何錯誤訊息。
+#     補上那個依賴之後才會開始運作。
+# =============================================================================
+eureka:
+  instance:
+    # 登記時留 IP，不留主機名。
+    # 🔑 別的服務拿到這串字會直接組成 URL 去打 —— 主機名在對方那邊解析不出來就失敗，
+    #    而且錯誤看起來像網路問題，不像設定問題，很難查。
+    # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
+    #     容器 → 容器  ✅ 通
+    #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:9000）
+    prefer-ip-address: true
+
+  client:
+    # 這兩個本來就預設 true，寫出來是為了跟 eurekaserver 那份（都是 false）對照。
+    # 兩者完全獨立，想像成公司通訊錄：
+    register-with-eureka: true    # 把我的分機登記進去（讓別人找得到我）
+    fetch-registry: true          # 影印一份通訊錄回座位（讓我找得到別人）
+    #
+    # 🔑 fetch-registry 是「客戶端負載平衡」的地基 —— 名冊在本機有快取（預設 30 秒
+    #    更新一次），所以呼叫別人時不必先問 Eureka，直接從本機名單挑一個實例打。
+    #    這也是 Eureka 掛掉後服務還能撐一陣子的原因。
+
+    service-url:
+      # 容器化時由 compose 設：EUREKA_URL: http://eurekaserver:8070/eureka/
+      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
+
+# /actuator/info 的內容。Eureka 儀表板上每個實例的 status page 連結預設就指向這裡，
+# 實例一多時，用來確認「這台到底是哪個服務、哪個版本」。
+# ⚠ 光寫這段看不到東西，還要下面的 management.info.env.enabled: true。
+info:
+  app:
+    name: "card"
+    description: "Bank Card App"
+    version: "1.0.0"
+
 management:
   endpoints:
     web:
@@ -85,6 +130,7 @@ management:
         #   env         看設定的來源與優先序 —— 查「值到底來自哪一層」最快的方式
         #   refresh     只重抓「這一個」服務的設定（POST）
         #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓（POST）
+        #   shutdown    優雅關閉服務（POST）—— 另需下方 endpoint.shutdown.access
         #
         # ⚠ 不是所有設定 refresh 都改得動：
         #     card.* 這類自訂設定、logging.level.*                           → 有效
@@ -96,4 +142,34 @@ management:
         # 🔑 兩個都留著，除錯時可以把問題切一半：busrefresh 打了某個服務沒更新，
         #    就單獨對它打 refresh —— 有更新代表問題在 Bus（沒收到廣播），
         #    沒更新代表問題在 Config Server 那側（通常是忘記 push）。
-        include: health,info,env,refresh,busrefresh
+        include: health,info,env,refresh,busrefresh,shutdown
+
+  # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
+  #     none          端點不存在（連 bean 都不會建）
+  #     read-only     只能 GET
+  #     unrestricted  POST / DELETE 也放行  ← shutdown 是 POST，非它不可
+  #
+  # 🔑 全部端點裡只有 shutdown 和 heapdump 預設關閉（官方文件明列的兩個例外）——
+  #    一個能關掉服務，一個能把整包記憶體 dump 出來。
+  #
+  # 🔑 為什麼微服務特別需要它：優雅關閉會「主動通知 Eureka 註銷」，儀表板上馬上消失。
+  #    直接按 IDE 停止鈕或 kill -9 的話，要等心跳超時（90 秒）再加上驅逐排程
+  #    （每 60 秒掃一次）—— 中間那幾分鐘，別的服務還是會把請求送到已經死掉的實例上。
+  #    這就是「優雅關閉」在微服務裡的真正價值：不是為了資料完整性，是為了不讓流量打到墓碑。
+  #
+  # ⚠ 這是「沒有驗證的 POST，任何人打了服務就掛掉」。正式環境要用 Spring Security
+  #   保護或直接關掉（上面的 env 端點會印出所有設定值，性質相同）。
+  # ⚠ 容器裡打了它 → 應用程式退出 → 容器變 Exited(0)。compose 目前沒設 restart: 政策，
+  #   所以要手動 docker compose up -d 才會回來。
+  #
+  # 用法：Invoke-RestMethod http://localhost:9000/actuator/shutdown -Method Post
+  endpoint:
+    shutdown:
+      access: unrestricted
+
+  # 讓上面那段 info: 真的顯示出來。
+  # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
+  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
+  info:
+    env:
+      enabled: true
