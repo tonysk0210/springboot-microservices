@@ -86,6 +86,23 @@ spring:
 server:
   port: 8071        # ⚠ 不能省，預設 8080 會跟 account 撞
 
+management:
+  endpoint:
+    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
+    # 開了之後會列出每個 HealthIndicator，壞掉的那一項多一個 details.error 指出原因。
+    # 還能只查單項：/actuator/health/configServer
+    #
+    # 🔑 configserver 最值得看的是「configServer」這一項 —— 它會顯示 git 後端的狀態。
+    #    repo clone 失敗、uri 或 search-paths 打錯時，這裡會直接告訴你，
+    #    不用等到某個服務來要設定卻拿到空的才發現。
+    #
+    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑等內部資訊，
+    #   而這個端點是「沒有驗證就能打」的。
+    #   正式環境改成 never（預設）或 when-authorized（需搭配 Spring Security）；
+    #   折衷可用 show-components: always —— 看得到哪一項壞了但不含 details。
+    health:
+      show-details: always
+
 # =============================================================================
 #  設定值加密
 #  金鑰不寫在這裡（本檔案會進 git），改由環境變數 ENCRYPT_KEY 提供，

@@ -167,6 +167,18 @@ management:
     shutdown:
       access: unrestricted
 
+    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
+    # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
+    # 壞掉的那一項會多一個 details.error 直接指出原因。
+    # 還能只查單項：/actuator/health/db、/actuator/health/discoveryComposite
+    #
+    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑、磁碟容量、
+    #   RabbitMQ 版本等內部資訊，而這個端點是「沒有驗證就能打」的。
+    #   正式環境改成 never（預設）或 when-authorized（需搭配 Spring Security）；
+    #   折衷可用 show-components: always —— 看得到「是 rabbit 壞了」但不含 details。
+    health:
+      show-details: always
+
   # 讓上面那段 info: 真的顯示出來。
   # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
   # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
