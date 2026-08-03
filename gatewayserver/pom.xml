@@ -83,6 +83,46 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- Jib 建 image（不用寫 Dockerfile，跟 configserver / eurekaserver / card 同一套）：
+                     ./mvnw compile jib:dockerBuild
+                 ⚠ compile 不能省，Jib 不會自己編譯。漏掉的錯誤訊息是
+                   Obtaining project build output files failed。 -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <from>
+                        <!-- 跟其他服務同一個基底：alpine 有 wget（compose 的 healthcheck 要用）
+                             和 sh（進去除錯要用）。
+                             docker:// = 用本機已經有的，不去網路抓（理由見 card/pom.xml）。
+                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
+                        <image>docker://eclipse-temurin:25-jre-alpine</image>
+                    </from>
+                    <to>
+                        <image>anthonysk/${project.artifactId}:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <!-- 等同 Dockerfile 的 EXPOSE，純標籤；真正的映射由 compose 的 ports: 決定。
+                                 ⚠ 要跟 application.yaml 的 server.port 一致（目前 8072）。
+                                   不一致不會報錯，只是這個標籤變成謊言。 -->
+                            <port>8072</port>
+                        </ports>
+                        <!-- 刻意不設 <environment>：CONFIGSERVER_HOST / EUREKA_URL 在本機是
+                             localhost、容器裡是服務名，屬於「網路拓撲」，由 compose 在執行期提供，
+                             不該寫死進 image。 -->
+                        <!-- 不要用 root 執行 -->
+                        <user>nobody</user>
+                        <labels>
+                            <org.opencontainers.image.title>gatewayserver</org.opencontainers.image.title>
+                            <org.opencontainers.image.description>Spring Cloud Gateway（API 閘道，統一入口與路由）</org.opencontainers.image.description>
+                            <org.opencontainers.image.authors>Tony Shangkuan</org.opencontainers.image.authors>
+                            <org.opencontainers.image.source>https://github.com/tonysk0210/springboot-microservices</org.opencontainers.image.source>
+                        </labels>
+                    </container>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

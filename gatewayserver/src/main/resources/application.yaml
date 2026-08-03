@@ -1,3 +1,58 @@
 spring:
   application:
     name: gatewayserver
+  config:
+    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+  cloud:
+    gateway:
+      server:
+        webflux:
+          discovery:
+            locator:
+              enabled: true
+
+eureka:
+  instance:
+    # 登記時留 IP，不留主機名。
+    # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
+    #     容器 → 容器  ✅ 通
+    #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:8072）
+    prefer-ip-address: true
+  client:
+    # 🔑 兩個都要 true，但對 Gateway 來說用途不同：
+    #    fetch-registry        路由寫 lb://ACCOUNT 時靠它把服務名換成實際位址（非它不可）
+    #    register-with-eureka  自己也登記上去，儀表板看得到、之後可以水平擴展
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      # Eureka Server 在哪。${變數:預設值} —— 有環境變數就用它，沒有就用冒號後面那串：
+      #     本機跑（沒設）→ localhost:8070
+      #     容器跑         → compose 設成 http://eurekaserver:8070/eureka/
+      #
+      # ⚠ 結尾的 /eureka/ 不能省 —— 那是 Eureka REST API 的根路徑（註冊、心跳、
+      #   抓名冊都掛在它底下）。根路徑 / 是儀表板網頁，寫錯會噴
+      #   「Cannot execute request on any known server」。
+      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,refresh,busrefresh,gateway
+  info:
+    env:
+      enabled: true
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      access: unrestricted
+
+info:
+  app:
+    name: "gatewayserver"
+    description: "Gateway Server App"
+    version: "1.0.0"
+
+server:
+  port: 8072
