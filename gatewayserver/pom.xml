@@ -39,10 +39,32 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
+        <!-- API 閘道本體（反應式，跑在 Netty 不是 Tomcat）：路由、斷言、過濾器，
+             以及 /actuator/gateway/** 管理端點。
+
+             ⚠ 4.2 起專案拆成 webflux / webmvc / proxyexchange 三個，屬性命名空間跟著分家。
+               本專案是 webflux，所以是 spring.cloud.gateway.server.webflux.*。
+               舊教材寫的 spring.cloud.gateway.routes（少了兩層）在 5.x 完全無效，
+               而且 Spring 對未知屬性不報錯 —— 會安靜地什麼都不做。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
         </dependency>
+
+        <!-- Eureka Client —— 讓 Gateway 找得到後端服務。
+             ⚠ 沒有它，lb://ACCOUNT 和自動路由都不會運作。
+
+             🔑 為什麼 yaml 完全沒提「eureka」，Gateway 卻知道要問 Eureka？
+                因為 Gateway 只依賴「介面」。實測 jar 的建構子：
+                    DiscoveryClientRouteDefinitionLocator(ReactiveDiscoveryClient, ...)
+                這條依賴的自動組態註冊了 EurekaReactiveDiscoveryClient 去實作它。
+                所以「指向 Eureka」是 pom 決定的 —— 換成 consul-discovery，yaml 一個字都不用改。
+
+             ⚠ 忘記加 discovery starter 的症狀是「安靜地什麼都不做」：
+               locator.enabled: true 照樣被接受，但沒有那個 bean → 路由是空的、沒有錯誤訊息。
+               查法：Invoke-RestMethod http://localhost:8072/actuator/gateway/routes
+
+             ⚠ 傳遞依賴把 httpclient 釘在 4.5.3（CVE-2020-13956）。詳見 account/pom.xml。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>

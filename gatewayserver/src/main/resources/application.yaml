@@ -5,10 +5,46 @@ spring:
     import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
   cloud:
     gateway:
+      # ⚠⚠ server.webflux 這兩層不能省 ⚠⚠
+      #   Gateway 4.2 起專案拆成三個（server-webflux / server-webmvc / proxyexchange），
+      #   本專案用的是 spring-cloud-starter-gateway-server-webflux（反應式 / Netty）。
       server:
         webflux:
           discovery:
             locator:
+              # 自動路由：把 Eureka 名冊上「每一個」服務變成一條路由，不用手寫 routes:。
+              #
+              # 生成公式（都是 jar 內建的預設值）：
+              #     url-expression        'lb://' + serviceId
+              #     include-expression    true          ← 全部都收，不篩選
+              #     lower-case-service-id false         ← 路徑保持大寫
+              #     route-id-prefix       CompositeDiscoveryClient_
+              #
+              # 以目前的 Eureka 名冊會生成：
+              #     /ACCOUNT/**        → lb://ACCOUNT
+              #     /LOAN/**           → lb://LOAN
+              #     /CARD/**           → lb://CARD
+              #     /GATEWAYSERVER/**  → lb://GATEWAYSERVER   ← ⚠ 自己也被暴露
+              #
+              # 🔑 它內建 RewritePath，會自動砍掉第一段路徑，所以不用寫 StripPrefix：
+              #     打 /ACCOUNT/api/fetch-account → 轉成 /api/fetch-account 送給 account
+              #
+              # ⚠ 路徑是「大寫的服務名」，不是 /account。要小寫得再加：
+              #     lower-case-service-id: true
+              #
+              # ⚠⚠ 正式環境不該開，三個理由 ⚠⚠
+              #   1. 對外路徑被服務名綁死 —— 想要 /bank/account/** 這種設計就辦不到，
+              #      而且改 spring.application.name 等於改對外 API。
+              #   2. 內部服務一起暴露 —— GATEWAYSERVER 自己已經在名單上；哪天
+              #      configserver 也註冊到 Eureka，/CONFIGSERVER/** 就對外開放，
+              #      而那上面有 /encrypt、/decrypt 和所有服務的設定值。
+              #   3. 沒有審核 —— 任何人跑一個服務註冊上去，30 秒後 API 就對外了。
+              #
+              # 🔑 驗證它到底生成了什麼（唯一可靠的方法）：
+              #     Invoke-RestMethod http://localhost:8072/actuator/gateway/routes
+              #
+              # 之後改成明確定義路由時把這行設回 false（那也是預設值），
+              # 換成 spring.cloud.gateway.server.webflux.routes 自己列。
               enabled: true
 
 eureka:
