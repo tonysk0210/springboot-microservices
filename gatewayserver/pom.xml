@@ -70,6 +70,24 @@
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
 
+        <!-- Spring Cloud Bus + RabbitMQ —— 提供 /actuator/busrefresh，也讓本服務「收得到」
+             別人發的 refresh 廣播（沒有它，configyml/gatewayserver.yml 改了要手動打
+             /actuator/refresh，因為 Bus 訊息完全到不了）。
+
+             🔑 為什麼 Gateway 需要它：之後路由規則會搬進 configyml/gatewayserver.yml，
+                改一條路徑就能靠廣播即時生效，不用重建 image。
+
+             ⚠ /actuator/refresh 和 /actuator/gateway/refresh 是「不同的東西」：
+                  /actuator/refresh          重讀 Environment（設定值）
+                  /actuator/gateway/refresh  重建路由表
+                前者會不會連帶觸發後者沒實測過，路由真的搬進 configyml 時要驗一次。
+
+             ⚠ 需要 RabbitMQ 在跑，否則啟動時會在背景無限重連（不影響啟動，但 log 很吵）。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>

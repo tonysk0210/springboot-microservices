@@ -74,6 +74,27 @@
             <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
         </dependency>
 
+        <!-- Spring Cloud Bus + RabbitMQ —— 提供 /actuator/busrefresh，也讓本服務收得到
+             別人發的 refresh 廣播。加它是為了「五個服務行為一致」，實際效益有限：
+
+             ⚠ eurekaserver 的設定幾乎都是「啟動時綁死、refresh 改不動」的：
+                   server.port                  Netty 已綁定
+                   eureka.instance.hostname     DiscoveryClient 已初始化
+                   eureka.client.*              同上
+               而且 configyml/eurekaserver.yml 是空的，遠端也沒東西可以下發。
+               🔑 真正 refresh 得動的只有 logging.level.* —— 好處是可以遠端把 Eureka 的
+                  log 調成 DEBUG 除錯，不用重啟。
+
+             ⚠ 需要 RabbitMQ 在跑，否則背景會無限重連（不影響啟動，但 log 很吵）。
+             ⚠ 容器裡要由 compose 設 SPRING_RABBITMQ_HOST: rabbitmq ——
+               預設是 localhost，而容器裡的 localhost 是容器自己。
+               所以 compose.yml 的 eurekaserver 要改成繼承 common.yml 的 configserver-base
+               （那一層帶這個環境變數和 depends_on rabbitmq），不再只繼承 resource-limits。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>

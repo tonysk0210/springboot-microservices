@@ -119,18 +119,18 @@ services:
     ports:
       - "8070:8070"
 
-    # ⚠ 只繼承 resource-limits，不用 configserver-base ——
-    #   那一層會帶 SPRING_RABBITMQ_HOST 和 depends_on rabbitmq，
-    #   但 eurekaserver 沒有 spring-cloud-starter-bus-amqp，用不到 RabbitMQ。
-    #   多綁一個依賴只會讓啟動更慢、故障面更大。
+    # 用 configserver-base 而不是 microservice-base —— 前者帶 JVM 參數、
+    # SPRING_RABBITMQ_HOST、depends_on rabbitmq；後者還會帶 EUREKA_URL 和
+    # depends_on eurekaserver（自己等自己，死鎖）。
+    #
+    # ⚠ RabbitMQ 那層是「加了 spring-cloud-starter-bus-amqp 之後才需要」的。
+    #   沒有 SPRING_RABBITMQ_HOST 的話容器裡會去連 localhost:5672（= 容器自己），
+    #   背景無限重連，log 很吵。
     extends:
       file: common.yml
-      service: resource-limits
+      service: configserver-base
 
     environment:
-      # configserver-base 那層有這行，這裡沒繼承所以要自己補。
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-
       # ⚠⚠ 最關鍵的一行 ⚠⚠
       #   application.yml 寫的是 hostname: ${EUREKA_HOST:localhost}，
       #   不設的話 Eureka 會用 localhost 算出自己的 defaultZone。
@@ -148,6 +148,8 @@ services:
     # ⚠ 這裡刻意「不設」SPRING_CLOUD_CONFIG_FAIL_FAST。
     #   三個微服務設 true 是因為它們真的需要遠端設定（拿不到就等於壞了）；
     #   eurekaserver 拿到的是空的，fail fast 只會讓它平白多一個死因。
+    #
+    # ⚠ rabbitmq 那項由 configserver-base 帶進來（合併，不是覆蓋）。
     depends_on:
       configserver:
         condition: service_healthy
