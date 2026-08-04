@@ -1,152 +1,49 @@
+# API Gateway —— 對外單一入口，跑在 Netty（反應式）。
+# 🔑 路由定義在 config/RouteConfig.java，不在本檔案。
+
+server:
+  port: 8072
+
 spring:
   application:
     name: gatewayserver
+
   config:
     import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+
   cloud:
     gateway:
-      # ⚠⚠ server.webflux 這兩層不能省 ⚠⚠
-      #   Gateway 4.2 起專案拆成三個（server-webflux / server-webmvc / proxyexchange），
-      #   本專案用的是 spring-cloud-starter-gateway-server-webflux（反應式 / Netty）。
+      # ⚠ 屬性必須帶 server.webflux 兩層。舊教材的 spring.cloud.gateway.routes
+      #   在 5.x 無效，而且不報錯。
       server:
         webflux:
           discovery:
             locator:
-              # 自動路由：把 Eureka 名冊上「每一個」服務變成一條路由，不用手寫 routes:。
-              #
-              # 生成公式（都是 jar 內建的預設值）：
-              #     url-expression        'lb://' + serviceId
-              #     include-expression    true          ← 全部都收，不篩選
-              #     lower-case-service-id false         ← 路徑保持大寫
-              #     route-id-prefix       CompositeDiscoveryClient_
-              #
-              # 以目前的 Eureka 名冊會生成：
-              #     /ACCOUNT/**        → lb://ACCOUNT
-              #     /LOAN/**           → lb://LOAN
-              #     /CARD/**           → lb://CARD
-              #     /GATEWAYSERVER/**  → lb://GATEWAYSERVER   ← ⚠ 自己也被暴露
-              #
-              # 🔑 它內建 RewritePath，會自動砍掉第一段路徑，所以不用寫 StripPrefix：
-              #     打 /ACCOUNT/api/fetch-account → 轉成 /api/fetch-account 送給 account
-              #
-              # ⚠ 路徑是「大寫的服務名」，不是 /account。要小寫得再加：
-              #     lower-case-service-id: true
-              #
-              # ⚠⚠ 正式環境不該開，三個理由 ⚠⚠
-              #   1. 對外路徑被服務名綁死 —— 想要 /bank/account/** 這種設計就辦不到，
-              #      而且改 spring.application.name 等於改對外 API。
-              #   2. 內部服務一起暴露 —— GATEWAYSERVER 自己已經在名單上；哪天
-              #      configserver 也註冊到 Eureka，/CONFIGSERVER/** 就對外開放，
-              #      而那上面有 /encrypt、/decrypt 和所有服務的設定值。
-              #   3. 沒有審核 —— 任何人跑一個服務註冊上去，30 秒後 API 就對外了。
-              #
-              # 🔑 驗證它到底生成了什麼（唯一可靠的方法）：
-              #     Invoke-RestMethod http://localhost:8072/actuator/gateway/routes
-              #
-              # ⚠ 已改用下面的 routes: 明確定義，所以關掉。
-              #   兩者可以並存（自動的會多出 /ACCOUNT/** 那幾條），但沒必要 ——
-              #   對外只該有一組路徑，多一組只是多一個沒人維護的入口。
-              # ⚠ false 本來就是預設值，寫出來是為了跟上面那段說明對照。
+              # true = 自動路由，Eureka 上有誰就開一條 /服務名/**（大寫）。
+              # ⚠ 不用它：對外路徑會被服務名綁死，要 /bank/account/** 就辦不到。
+              # ⚠ true 是跟 RouteConfig.java 疊加，不是覆蓋。
               enabled: false
-
-              # ⚠ enabled: false 之下這行完全沒作用（它只影響自動生成的路徑大小寫）。
-              #   留著是為了「哪天想暫時開回自動路由」時不用重新查怎麼寫。
-              lower-case-service-id: true
-
-          # ── 對外路由 ──────────────────────────────────────────────────────
-          #  ⚠⚠ 已改用 Java DSL：見 config/RouteConfig.java ⚠⚠
-          #
-          #  🔑 兩者是「同一件事的兩個入口」—— 最後都變成同一個 RouteDefinition，
-          #     /actuator/gateway/routes 看起來一樣。
-          #  ⚠ 但兩邊都寫會「疊加」不是覆蓋 —— 路由表會變成 6 條，
-          #    對外多一組沒人維護的入口。所以這裡整段註解掉，只留一邊。
-          #
-          #  取捨對照：
-          #                       yaml                     Java DSL（現在用的）
-          #      搬到 Config Server   ✅ busrefresh 就生效    ❌ 要重建 image 重新部署
-          #      迴圈 / 條件生成      ❌                      ✅
-          #      打錯何時發現         啟動時                  編譯時
-          #      砍前綴的寫法         StripPrefix=2           rewritePath + 正規表示式
-          #
-          #  ⚠ gatewayserver 的 spring-cloud-starter-bus-amqp 本來是為「路由搬到
-          #    Config Server」加的。改用 Java DSL 之後，那個依賴目前只剩
-          #    「接收 log 層級變更」的用途。想換回來的話把下面整段取消註解，
-          #    並刪掉（或註解掉）RouteConfig.java 的 @Configuration。
-          #
-          # routes:
-          #   - id: account
-          #     uri: lb://ACCOUNT
-          #     predicates:
-          #       - Path=/bank/account/**
-          #     filters:
-          #       - StripPrefix=2       # ← 砍掉前 2 段，等價於 DSL 的 rewritePath
-          #
-          #   - id: loan
-          #     uri: lb://LOAN
-          #     predicates:
-          #       - Path=/bank/loan/**
-          #     filters:
-          #       - StripPrefix=2
-          #
-          #   - id: card
-          #     uri: lb://CARD
-          #     predicates:
-          #       - Path=/bank/card/**
-          #     filters:
-          #       - StripPrefix=2
 
 eureka:
   instance:
-    # 登記時留 IP，不留主機名。
-    # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
-    #     容器 → 容器  ✅ 通
-    #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:8072）
+    # ⚠ 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
     prefer-ip-address: true
+
   client:
-    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
-    #   症狀：WARN InstanceInfo - Passed in hostname is blank, not setting it
-    #        → registration failure with status code 400 → 每 30 秒重試永遠失敗
-    #   原因：hostname / instanceId 等欄位預設是程式碼算出來的、不來自屬性，
-    #        設定一有變動就會被 ConfigurationPropertiesRebinder 清空。
-    #        這個開關讓 Eureka client 整組退出 refresh 路徑。
-    #   完整說明見 account 的 application.yaml。
+    # ⚠⚠ 不能省 —— 少了它 push 之後服務會從 Eureka 消失（rebind 清空 hostname，
+    #   註冊回 400 且無限重試）。診斷見 account 的 application.yaml。
     refresh:
       enable: false
 
-    # 🔑 兩個都要 true，但對 Gateway 來說用途不同：
-    #    fetch-registry        路由寫 lb://ACCOUNT 時靠它把服務名換成實際位址（非它不可）
-    #    register-with-eureka  自己也登記上去，儀表板看得到、之後可以水平擴展
+    # 🔑 fetch-registry 才是關鍵 —— 路由的 lb://ACCOUNT 靠它換成實際位址。
+    #    register 只是讓儀表板看得到。
     register-with-eureka: true
     fetch-registry: true
+
     service-url:
-      # Eureka Server 在哪。${變數:預設值} —— 有環境變數就用它，沒有就用冒號後面那串：
-      #     本機跑（沒設）→ localhost:8070
-      #     容器跑         → compose 設成 http://eurekaserver:8070/eureka/
-      #
-      # ⚠ 結尾的 /eureka/ 不能省 —— 那是 Eureka REST API 的根路徑（註冊、心跳、
-      #   抓名冊都掛在它底下）。根路徑 / 是儀表板網頁，寫錯會噴
-      #   「Cannot execute request on any known server」。
+      # ⚠ 結尾 /eureka/ 不能省（/ 是儀表板網頁）。
+      # ⚠ defaultZone 必須駝峰式，寫成 default-zone 不報錯只失效。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,env,refresh,busrefresh,gateway
-  info:
-    env:
-      enabled: true
-  endpoint:
-    health:
-      show-details: always
-    gateway:
-      access: unrestricted
-
-    # /actuator/env 預設把所有值遮成 ******（Spring Boot 3.0 起）。開了才看得到
-    # 實際值，以及「被覆蓋掉的那一層」—— 完整說明見 account 的 application.yaml。
-    # ⚠⚠ 只適合本機開發：會印出明文連線字串和密碼，而端點沒有驗證。
-    env:
-      show-values: ALWAYS
 
 info:
   app:
@@ -154,5 +51,25 @@ info:
     description: "Gateway Server App"
     version: "1.0.0"
 
-server:
-  port: 8072
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,env,refresh,busrefresh,gateway
+
+  info:
+    env:
+      enabled: true      # ⚠ 沒這行 /actuator/info 回空的 {}
+
+  endpoint:
+    health:
+      show-details: always
+
+    # 🔑 /actuator/gateway/routes 是查「實際生效的路由」唯一可靠的方法。
+    # ⚠ 要 unrestricted 是因為它能 POST 新增 / DELETE 刪路由。
+    # ⚠⚠ 無驗證就能改路由 = 流量可被導走，正式環境必關。
+    gateway:
+      access: unrestricted
+
+    env:
+      show-values: ALWAYS   # ⚠⚠ 會印出明文連線字串與密碼，只適合本機
