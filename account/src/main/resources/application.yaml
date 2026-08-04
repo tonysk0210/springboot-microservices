@@ -207,6 +207,25 @@ management:
     health:
       show-details: always
 
+    # /actuator/env 預設把「所有」值遮成 ****** （Spring Boot 3.0 起的行為 ——
+    # 它分不清哪個是機密，所以一律遮）。只看得到「值來自哪一層」，看不到值本身。
+    #
+    # 🔑 開了之後才能看到「被覆蓋掉的值」，這是 env 最有用的地方：
+    #       spring.rabbitmq.host
+    #         systemEnvironment   value=rabbitmq    ← compose 設的（贏）
+    #         application.yaml    value=localhost   ← 被蓋掉的，照樣列出來
+    #    容器裡 compose 的 environment 落在 systemEnvironment 那層，
+    #    優先權比 Config Server 高 —— 這也是為什麼它能當除錯後門。
+    #
+    # ⚠⚠ 只適合本機開發 ⚠⚠
+    #   開了會印出明文的資料庫連線字串、解密後的 email、RabbitMQ 密碼，
+    #   而這個端點沒有任何驗證。正式環境改成 NEVER（預設）——
+    #   或連 env 一起從上面的 exposure.include 移除（它是那份清單裡唯一
+    #   「沒有任何元件依賴」的端點，拿掉不影響系統行為）。
+    #   WHEN_AUTHORIZED 要搭配 Spring Security 才有意義，沒裝等於 NEVER。
+    env:
+      show-values: ALWAYS
+
   # 讓上面那段 info: 真的顯示出來。
   # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
   # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。

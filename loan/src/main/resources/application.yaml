@@ -179,6 +179,12 @@ management:
     health:
       show-details: always
 
+    # /actuator/env 預設把所有值遮成 ******（Spring Boot 3.0 起）。開了才看得到
+    # 實際值，以及「被覆蓋掉的那一層」—— 完整說明見 account 的 application.yaml。
+    # ⚠⚠ 只適合本機開發：會印出明文連線字串和密碼，而端點沒有驗證。
+    env:
+      show-values: ALWAYS
+
   # 讓上面那段 info: 真的顯示出來。
   # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
   # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。

@@ -46,6 +46,7 @@ spring:
               # 之後改成明確定義路由時把這行設回 false（那也是預設值），
               # 換成 spring.cloud.gateway.server.webflux.routes 自己列。
               enabled: true
+              lower-case-service-id: true
 
 eureka:
   instance:
@@ -83,6 +84,12 @@ management:
       show-details: always
     gateway:
       access: unrestricted
+
+    # /actuator/env 預設把所有值遮成 ******（Spring Boot 3.0 起）。開了才看得到
+    # 實際值，以及「被覆蓋掉的那一層」—— 完整說明見 account 的 application.yaml。
+    # ⚠⚠ 只適合本機開發：會印出明文連線字串和密碼，而端點沒有驗證。
+    env:
+      show-values: ALWAYS
 
 info:
   app:
