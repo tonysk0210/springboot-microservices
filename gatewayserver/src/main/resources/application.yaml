@@ -43,10 +43,57 @@ spring:
               # 🔑 驗證它到底生成了什麼（唯一可靠的方法）：
               #     Invoke-RestMethod http://localhost:8072/actuator/gateway/routes
               #
-              # 之後改成明確定義路由時把這行設回 false（那也是預設值），
-              # 換成 spring.cloud.gateway.server.webflux.routes 自己列。
-              enabled: true
+              # ⚠ 已改用下面的 routes: 明確定義，所以關掉。
+              #   兩者可以並存（自動的會多出 /ACCOUNT/** 那幾條），但沒必要 ——
+              #   對外只該有一組路徑，多一組只是多一個沒人維護的入口。
+              # ⚠ false 本來就是預設值，寫出來是為了跟上面那段說明對照。
+              enabled: false
+
+              # ⚠ enabled: false 之下這行完全沒作用（它只影響自動生成的路徑大小寫）。
+              #   留著是為了「哪天想暫時開回自動路由」時不用重新查怎麼寫。
               lower-case-service-id: true
+
+          # ── 對外路由 ──────────────────────────────────────────────────────
+          #  ⚠⚠ 已改用 Java DSL：見 config/RouteConfig.java ⚠⚠
+          #
+          #  🔑 兩者是「同一件事的兩個入口」—— 最後都變成同一個 RouteDefinition，
+          #     /actuator/gateway/routes 看起來一樣。
+          #  ⚠ 但兩邊都寫會「疊加」不是覆蓋 —— 路由表會變成 6 條，
+          #    對外多一組沒人維護的入口。所以這裡整段註解掉，只留一邊。
+          #
+          #  取捨對照：
+          #                       yaml                     Java DSL（現在用的）
+          #      搬到 Config Server   ✅ busrefresh 就生效    ❌ 要重建 image 重新部署
+          #      迴圈 / 條件生成      ❌                      ✅
+          #      打錯何時發現         啟動時                  編譯時
+          #      砍前綴的寫法         StripPrefix=2           rewritePath + 正規表示式
+          #
+          #  ⚠ gatewayserver 的 spring-cloud-starter-bus-amqp 本來是為「路由搬到
+          #    Config Server」加的。改用 Java DSL 之後，那個依賴目前只剩
+          #    「接收 log 層級變更」的用途。想換回來的話把下面整段取消註解，
+          #    並刪掉（或註解掉）RouteConfig.java 的 @Configuration。
+          #
+          # routes:
+          #   - id: account
+          #     uri: lb://ACCOUNT
+          #     predicates:
+          #       - Path=/bank/account/**
+          #     filters:
+          #       - StripPrefix=2       # ← 砍掉前 2 段，等價於 DSL 的 rewritePath
+          #
+          #   - id: loan
+          #     uri: lb://LOAN
+          #     predicates:
+          #       - Path=/bank/loan/**
+          #     filters:
+          #       - StripPrefix=2
+          #
+          #   - id: card
+          #     uri: lb://CARD
+          #     predicates:
+          #       - Path=/bank/card/**
+          #     filters:
+          #       - StripPrefix=2
 
 eureka:
   instance:
