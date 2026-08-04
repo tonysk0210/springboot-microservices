@@ -115,12 +115,6 @@ spring:
 # =============================================================================
 eureka:
   instance:
-    # 明確寫出實例 ID（格式沿用 Spring Cloud 的預設：主機名:應用名:port）。
-    # ⚠ 容器裡 hostname 是容器 ID 前 12 碼，所以 --scale 開多個實例時天然唯一。
-    # ⚠ 這一行「不足以」修掉下面 eureka.client.refresh.enable 講的那個問題 ——
-    #   rebind 會清掉 hostname 等其他欄位，一個一個補太脆弱。寫出來只是讓 ID 明確、穩定。
-    instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
-
     # 登記時留 IP，不留主機名。
     # 🔑 別的服務拿到這串字會直接組成 URL 去打 —— 主機名在對方那邊解析不出來就失敗，
     #    而且錯誤看起來像網路問題，不像設定問題，很難查。
