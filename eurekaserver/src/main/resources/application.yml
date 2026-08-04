@@ -78,7 +78,35 @@ eureka:
       #   （fetch-registry ↔ fetchRegistry 那套）管不到 Map 的 key。
       defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
 
+# /actuator/info 的內容。
+# ⚠ 光寫這段看不到東西，還要下面的 management.info.env.enabled: true
+#   （info.* 是由 env contributor 提供的，而它預設是關的）。
+# ⚠ 跟三個微服務不同：eurekaserver 自己「不註冊到名冊上」（register-with-eureka: false），
+#   所以這份 info 不會出現在儀表板的實例列表裡，只能手動打 /actuator/info 看。
+info:
+  app:
+    name: "eurekaserver"
+    description: "Eureka Server App"
+    version: "1.0.0"
+
 management:
+  endpoints:
+    web:
+      exposure:
+        # Actuator 預設「只開 health」，其他端點都要明確列出來。
+        #   health      compose 的 healthcheck 用它
+        #   info        上面那段 info.app.*（要搭配下面的 info.env.enabled）
+        #   refresh     只重抓「這一個」服務的設定（POST）
+        #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓（POST）
+        #
+        # ⚠ 對 eurekaserver 來說 refresh 的用途很窄 —— 它的設定幾乎都是啟動時綁死的
+        #   （server.port、eureka.instance.hostname、eureka.client.*），
+        #   真正改得動的只有 logging.level.*（遠端調 log 除錯用）。
+        #
+        # ⚠ 刻意「不加 env」（account 有加）—— 那個端點會印出所有設定值，
+        #   而 eurekaserver 沒什麼需要查來源的設定，少一個曝光面。
+        include: health,info,refresh,busrefresh
+
   endpoint:
     # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
     # 開了之後會列出每個 HealthIndicator，壞掉的那一項多一個 details.error 指出原因。
@@ -91,12 +119,20 @@ management:
     health:
       show-details: always
 
+  # 讓上面那段 info: 真的顯示出來。
+  # info.* 是由「env contributor」提供的，而它預設是關的（Spring Boot 2.6 起的行為，
+  # 官方文件：預設只有 build 和 git 啟用，env / java / os / process / ssl 全部停用）。
+  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且沒有任何錯誤或警告。
+  info:
+    env:
+      enabled: true
+
 # =============================================================================
 #  management 底下刻意「沒有」的其他設定
 #
 #  management.endpoints.web.exposure.include: "*"
-#      預設就開放 /actuator/health，compose 的 healthcheck 只需要這一個。
-#      "*" 會連 /actuator/env（印出所有設定）、/actuator/heapdump 一起開，是資安地雷。
+#      用萬用字元會連 /actuator/env（印出所有設定）、/actuator/heapdump 一起開，
+#      是資安地雷。上面改成明確列出四個。
 #
 #  management.endpoint.health.probes.enabled（liveness / readiness）
 #      那是給 Kubernetes 的探針，Spring Boot 偵測到跑在 K8s 上時會自動開。
