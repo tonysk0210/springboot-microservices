@@ -115,28 +115,10 @@ spring:
 # =============================================================================
 eureka:
   instance:
-    # ⚠⚠ 這一行不能省，少了它「push 之後三個服務會從 Eureka 上消失」⚠⚠
-    #
-    # 症狀（實測 2026-08-04）：
-    #     DiscoveryClient_ACCOUNT/null - was unable to send heartbeat!
-    #                             ^^^^ instanceId 變成 null
-    #     registration failure with status code 400        （Eureka 拒收 null id）
-    #     Root name ('timestamp') does not match expected ('instance')
-    #                （打到 /eureka/apps/ACCOUNT/null 拿到錯誤 JSON，卻想解析成 InstanceInfo）
-    #     health 的 refreshScope 變 DOWN，NPE: key is null（null 當 Map 的 key）
-    #
-    # 🔑 原因：EurekaInstanceConfigBean 是 @ConfigurationProperties("eureka.instance")，
-    #    而它的 instanceId 預設是「在 @Bean 方法裡用程式碼算出來」的，不來自任何屬性。
-    #    你 push → Config Server 內容變 → 屬性真的有變動 → EnvironmentChangeEvent
-    #    → ConfigurationPropertiesRebinder 把整個 bean 重新綁定
-    #    → 從屬性重建時找不到 eureka.instance.instance-id → instanceId = null。
-    #    明確寫出來，rebind 就有東西可讀，不會變 null。
-    #
-    # ⚠ 只有「設定真的改變」才會踩到 —— 打 /actuator/refresh 若回傳 []（沒有 key 變動），
-    #   不會發 EnvironmentChangeEvent，也就不會 rebind，測不出問題。
-    #
-    # 值的格式沿用 Spring Cloud 的預設（主機名:應用名:port），這樣儀表板顯示不變。
-    # ⚠ 容器裡 hostname 是容器 ID 的前 12 碼，所以 --scale 開多個實例時天然唯一。
+    # 明確寫出實例 ID（格式沿用 Spring Cloud 的預設：主機名:應用名:port）。
+    # ⚠ 容器裡 hostname 是容器 ID 前 12 碼，所以 --scale 開多個實例時天然唯一。
+    # ⚠ 這一行「不足以」修掉下面 eureka.client.refresh.enable 講的那個問題 ——
+    #   rebind 會清掉 hostname 等其他欄位，一個一個補太脆弱。寫出來只是讓 ID 明確、穩定。
     instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
 
     # 登記時留 IP，不留主機名。
@@ -148,6 +130,34 @@ eureka:
     prefer-ip-address: true
 
   client:
+    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
+    #
+    # 症狀（實測 2026-08-05 01:02，card 的 log）：
+    #     RefreshListener - Received remote refresh request.      ← push 觸發的廣播
+    #     Shutting down DiscoveryClient ... deregister status: 200 ← 舊的乾淨註銷
+    #     WARN InstanceInfo - Passed in hostname is blank, not setting it   ← 元凶
+    #     registration failure with status code 400                ← Eureka 拒收沒有 hostname 的實例
+    #     （之後每 30 秒重試一次，永遠 400，直到重啟 JVM）
+    #
+    # 🔑 原因：eureka.instance / eureka.client 的設定物件是 @ConfigurationProperties，
+    #    而 hostname、ipAddress、instanceId 這些欄位預設是「在 @Bean 方法裡用 InetUtils
+    #    算出來」的，不來自任何屬性。
+    #        push → Config Server 內容變 → 屬性真的有變動 → EnvironmentChangeEvent
+    #        → ConfigurationPropertiesRebinder 重新綁定整個 bean
+    #        → 只從屬性重建 → 那些「算出來的」欄位全變 null/空
+    #        → 心跳與註冊都失敗 → 被 Eureka 驅逐 → Gateway 回 503
+    #
+    # 這個開關讓 Eureka client「整組退出 refresh 路徑」，就不會被 rebind 破壞。
+    # 官方描述：If disabled none of the Eureka client properties will be refreshable.
+    # ⚠ 代價：改 eureka.* 設定要重啟才生效 —— 但那些本來就是啟動時綁死的
+    #   （server.port、hostname、service-url 都不可能熱更新），實質上沒有損失。
+    #
+    # ⚠ 只有「設定真的改變」才會踩到。打 /actuator/refresh 若回傳 []（沒有 key 變動）
+    #   不會發 EnvironmentChangeEvent，也就不會 rebind —— 所以那樣測不出問題，
+    #   一定要 push 一個會改到 Config Server 內容的 commit 才驗得出來。
+    refresh:
+      enable: false
+
     # 這兩個本來就預設 true，寫出來是為了跟 eurekaserver 那份（都是 false）對照。
     # 兩者完全獨立，想像成公司通訊錄：
     register-with-eureka: true    # 把我的分機登記進去（讓別人找得到我）

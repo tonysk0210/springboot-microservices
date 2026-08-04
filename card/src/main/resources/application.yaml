@@ -91,11 +91,9 @@ spring:
 # =============================================================================
 eureka:
   instance:
-    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
-    #   症狀：DiscoveryClient_CARD/null - was unable to send heartbeat!（instanceId 變 null）
-    #        + 註冊回 400 + refreshScope 變 DOWN。
-    #   原因：EurekaInstanceConfigBean 的 instanceId 預設是程式碼算出來的、不來自屬性，
-    #        設定一有變動就會被 rebind 成 null。完整說明見 account 的 application.yaml。
+    # 明確寫出實例 ID（格式沿用 Spring Cloud 預設：主機名:應用名:port）。
+    # ⚠ 容器裡 hostname 是容器 ID 前 12 碼，--scale 開多實例時天然唯一。
+    # ⚠ 這一行「不足以」修掉下面 eureka.client.refresh.enable 講的那個問題。
     instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
 
     # 登記時留 IP，不留主機名。
@@ -107,6 +105,16 @@ eureka:
     prefer-ip-address: true
 
   client:
+    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
+    #   症狀：WARN InstanceInfo - Passed in hostname is blank, not setting it
+    #        → registration failure with status code 400 → 每 30 秒重試永遠失敗
+    #   原因：hostname / instanceId 等欄位預設是程式碼算出來的、不來自屬性，
+    #        設定一有變動就會被 ConfigurationPropertiesRebinder 清空。
+    #        這個開關讓 Eureka client 整組退出 refresh 路徑。
+    #   完整說明見 account 的 application.yaml。
+    refresh:
+      enable: false
+
     # 這兩個本來就預設 true，寫出來是為了跟 eurekaserver 那份（都是 false）對照。
     # 兩者完全獨立，想像成公司通訊錄：
     register-with-eureka: true    # 把我的分機登記進去（讓別人找得到我）

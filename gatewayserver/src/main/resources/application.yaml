@@ -97,11 +97,9 @@ spring:
 
 eureka:
   instance:
-    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
-    #   症狀：DiscoveryClient_GATEWAYSERVER/null - was unable to send heartbeat!
-    #        + 註冊回 400 + refreshScope 變 DOWN。
-    #   原因：EurekaInstanceConfigBean 的 instanceId 預設是程式碼算出來的、不來自屬性，
-    #        設定一有變動就會被 rebind 成 null。完整說明見 account 的 application.yaml。
+    # 明確寫出實例 ID（格式沿用 Spring Cloud 預設：主機名:應用名:port）。
+    # ⚠ 容器裡 hostname 是容器 ID 前 12 碼，--scale 開多實例時天然唯一。
+    # ⚠ 這一行「不足以」修掉下面 eureka.client.refresh.enable 講的那個問題。
     instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
 
     # 登記時留 IP，不留主機名。
@@ -110,6 +108,16 @@ eureka:
     #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:8072）
     prefer-ip-address: true
   client:
+    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
+    #   症狀：WARN InstanceInfo - Passed in hostname is blank, not setting it
+    #        → registration failure with status code 400 → 每 30 秒重試永遠失敗
+    #   原因：hostname / instanceId 等欄位預設是程式碼算出來的、不來自屬性，
+    #        設定一有變動就會被 ConfigurationPropertiesRebinder 清空。
+    #        這個開關讓 Eureka client 整組退出 refresh 路徑。
+    #   完整說明見 account 的 application.yaml。
+    refresh:
+      enable: false
+
     # 🔑 兩個都要 true，但對 Gateway 來說用途不同：
     #    fetch-registry        路由寫 lb://ACCOUNT 時靠它把服務名換成實際位址（非它不可）
     #    register-with-eureka  自己也登記上去，儀表板看得到、之後可以水平擴展
