@@ -91,6 +91,13 @@ spring:
 # =============================================================================
 eureka:
   instance:
+    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
+    #   症狀：DiscoveryClient_CARD/null - was unable to send heartbeat!（instanceId 變 null）
+    #        + 註冊回 400 + refreshScope 變 DOWN。
+    #   原因：EurekaInstanceConfigBean 的 instanceId 預設是程式碼算出來的、不來自屬性，
+    #        設定一有變動就會被 rebind 成 null。完整說明見 account 的 application.yaml。
+    instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
+
     # 登記時留 IP，不留主機名。
     # 🔑 別的服務拿到這串字會直接組成 URL 去打 —— 主機名在對方那邊解析不出來就失敗，
     #    而且錯誤看起來像網路問題，不像設定問題，很難查。

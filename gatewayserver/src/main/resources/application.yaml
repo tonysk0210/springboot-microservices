@@ -97,6 +97,13 @@ spring:
 
 eureka:
   instance:
+    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
+    #   症狀：DiscoveryClient_GATEWAYSERVER/null - was unable to send heartbeat!
+    #        + 註冊回 400 + refreshScope 變 DOWN。
+    #   原因：EurekaInstanceConfigBean 的 instanceId 預設是程式碼算出來的、不來自屬性，
+    #        設定一有變動就會被 rebind 成 null。完整說明見 account 的 application.yaml。
+    instance-id: ${spring.cloud.client.hostname}:${spring.application.name}:${server.port}
+
     # 登記時留 IP，不留主機名。
     # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
     #     容器 → 容器  ✅ 通
