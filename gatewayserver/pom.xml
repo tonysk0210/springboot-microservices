@@ -39,60 +39,21 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
-        <!-- API 閘道本體（反應式，跑在 Netty 不是 Tomcat）：路由、斷言、過濾器，
-             以及 /actuator/gateway/** 管理端點。
-
-             ⚠ 4.2 起專案拆成 webflux / webmvc / proxyexchange 三個，屬性命名空間跟著分家。
-               本專案是 webflux，所以是 spring.cloud.gateway.server.webflux.*。
-               舊教材寫的 spring.cloud.gateway.routes（少了兩層）在 5.x 完全無效，
-               而且 Spring 對未知屬性不報錯 —— 會安靜地什麼都不做。 -->
+        <!-- WebFlux API Gateway：提供路由、斷言、過濾器及管理端點。
+             設定使用 spring.cloud.gateway.server.webflux.*。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
         </dependency>
-
-        <!-- Eureka Client —— 讓 Gateway 找得到後端服務。
-             ⚠ 沒有它，lb://ACCOUNT 和自動路由都不會運作。
-
-             🔑 為什麼 yaml 完全沒提「eureka」，Gateway 卻知道要問 Eureka？
-                因為 Gateway 只依賴「介面」。實測 jar 的建構子：
-                    DiscoveryClientRouteDefinitionLocator(ReactiveDiscoveryClient, ...)
-                這條依賴的自動組態註冊了 EurekaReactiveDiscoveryClient 去實作它。
-                所以「指向 Eureka」是 pom 決定的 —— 換成 consul-discovery，yaml 一個字都不用改。
-
-             ⚠ 忘記加 discovery starter 的症狀是「安靜地什麼都不做」：
-               locator.enabled: true 照樣被接受，但沒有那個 bean → 路由是空的、沒有錯誤訊息。
-               查法：Invoke-RestMethod http://localhost:8072/actuator/gateway/routes
-
-             ⚠ 傳遞依賴把 httpclient 釘在 4.5.3（CVE-2020-13956）。詳見 account/pom.xml。 -->
+        <!-- Eureka Client：讓 lb://SERVICE 透過服務名稱尋找可用實例。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
-
-        <!-- Spring Cloud Bus + RabbitMQ —— 提供 /actuator/busrefresh，也讓本服務「收得到」
-             別人發的 refresh 廣播（沒有它，configyml/gatewayserver.yml 改了要手動打
-             /actuator/refresh，因為 Bus 訊息完全到不了）。
-
-             🔑 為什麼 Gateway 需要它：之後路由規則會搬進 configyml/gatewayserver.yml，
-                改一條路徑就能靠廣播即時生效，不用重建 image。
-
-             ⚠ /actuator/refresh 和 /actuator/gateway/refresh 是「不同的東西」：
-                  /actuator/refresh          重讀 Environment（設定值）
-                  /actuator/gateway/refresh  重建路由表
-                前者會不會連帶觸發後者沒實測過，路由真的搬進 configyml 時要驗一次。
-
-             ⚠ 需要 RabbitMQ 在跑，否則啟動時會在背景無限重連（不影響啟動，但 log 很吵）。 -->
+        <!-- Spring Cloud Bus：透過 RabbitMQ 廣播設定更新；Broker 未啟動時會持續重連。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-devtools</artifactId>
-            <scope>runtime</scope>
-            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -123,20 +84,14 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!-- Jib 建 image（不用寫 Dockerfile，跟 configserver / eurekaserver / card 同一套）：
-                     ./mvnw compile jib:dockerBuild
-                 ⚠ compile 不能省，Jib 不會自己編譯。漏掉的錯誤訊息是
-                   Obtaining project build output files failed。 -->
+            <!-- 使用 Jib 建立 image：./mvnw compile jib:dockerBuild -->
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
                     <from>
-                        <!-- 跟其他服務同一個基底：alpine 有 wget（compose 的 healthcheck 要用）
-                             和 sh（進去除錯要用）。
-                             docker:// = 用本機已經有的，不去網路抓（理由見 card/pom.xml）。
-                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
+                        <!-- 使用本機的 Java 25 Alpine image。 -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
                     <to>
@@ -144,14 +99,9 @@
                     </to>
                     <container>
                         <ports>
-                            <!-- 等同 Dockerfile 的 EXPOSE，純標籤；真正的映射由 compose 的 ports: 決定。
-                                 ⚠ 要跟 application.yaml 的 server.port 一致（目前 8072）。
-                                   不一致不會報錯，只是這個標籤變成謊言。 -->
+                            <!-- image 暴露的服務埠；實際映射由 Compose 設定。 -->
                             <port>8072</port>
                         </ports>
-                        <!-- 刻意不設 <environment>：CONFIGSERVER_HOST / EUREKA_URL 在本機是
-                             localhost、容器裡是服務名，屬於「網路拓撲」，由 compose 在執行期提供，
-                             不該寫死進 image。 -->
                         <!-- 不要用 root 執行 -->
                         <user>nobody</user>
                         <labels>

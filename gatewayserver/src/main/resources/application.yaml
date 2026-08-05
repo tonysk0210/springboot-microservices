@@ -1,5 +1,4 @@
-# API Gateway —— 對外單一入口，跑在 Netty（反應式）。
-# 🔑 路由定義在 config/RouteConfig.java，不在本檔案。
+# API Gateway —— 對外單一入口，使用非阻塞式 Netty Server。
 
 server:
   port: 8072
