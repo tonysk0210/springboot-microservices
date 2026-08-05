@@ -9,20 +9,9 @@ spring:
     name: gatewayserver
 
   config:
+    # 從 ConfigServer 載入設定；容器使用 CONFIGSERVER_HOST，本機預設為 localhost。
+    # optional: 表示連線失敗時仍允許 Gateway 啟動。
     import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
-
-  cloud:
-    gateway:
-      # ⚠ 屬性必須帶 server.webflux 兩層。舊教材的 spring.cloud.gateway.routes
-      #   在 5.x 無效，而且不報錯。
-      server:
-        webflux:
-          discovery:
-            locator:
-              # true = 自動路由，Eureka 上有誰就開一條 /服務名/**（大寫）。
-              # ⚠ 不用它：對外路徑會被服務名綁死，要 /bank/account/** 就辦不到。
-              # ⚠ true 是跟 RouteConfig.java 疊加，不是覆蓋。
-              enabled: false
 
 eureka:
   instance:
