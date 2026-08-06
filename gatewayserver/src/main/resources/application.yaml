@@ -12,6 +12,18 @@ spring:
     # optional: 表示連線失敗時仍允許 Gateway 啟動。
     import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
 
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # Gateway 打後端服務時，Netty 這一次 HTTP 往返的逾時。
+          # 內層的計時器，套用到「所有路由」，不需要有斷路器也生效。
+          httpclient:
+            # 建立 TCP 連線的上限。⚠ 這個欄位是「毫秒的整數」，寫 1s 會解析失敗。
+            connect-timeout: 1000
+            # 連上之後等後端回應的上限。這個才是 Duration，可以寫 2s。
+            response-timeout: 2s
+
 eureka:
   instance:
     # 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
@@ -74,7 +86,10 @@ logging:
       example:
         gatewayserver: DEBUG # 設定日誌等級
 
-# Resilience4j Circuit Breaker 的共用預設設定。
+# 斷路器分成兩棵獨立的設定樹，長得像但管的事不同：
+#     circuitbreaker  失敗幾次跳開、跳開多久
+#     timelimiter     等多久算失敗           ← 改斷路器預設 1 秒的是這棵
+#
 # CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；
 # OPEN 等待指定時間後轉為 HALF_OPEN，以少量試探請求判斷下游是否恢復。
 resilience4j.circuitbreaker:
@@ -84,3 +99,12 @@ resilience4j.circuitbreaker:
       permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
       failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
       waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN
+
+# 斷路器包住的整段處理的總時限（含查 Eureka、挑實例、其他 filter），外層兜底用。
+# ⚠ 不寫預設只有 1 秒，第一次呼叫很容易破 → Postman 幾乎立刻跳 fallback。
+#   改這個 1 秒只能靠這棵樹，把 httpclient 的 response-timeout 調大沒有用。
+# 🔑 要比上面 httpclient 的 2s 大。反過來的話錯誤都變成籠統的 TimeoutException。
+resilience4j.timelimiter:
+  configs:
+    default:
+      timeoutDuration: 4s
