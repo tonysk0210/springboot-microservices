@@ -5,10 +5,15 @@ logging:
   level:
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
-    # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面的 jpa.show-sql）
+    # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面這行）
+
+    # API 執行的 SQL。取代 spring.jpa.show-sql —— 走 logger 才有時間、執行緒、追蹤 ID。
+    org.hibernate.SQL: DEBUG
   pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) logger名稱(黃) - 訊息
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n"
+    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,追蹤ID](洋紅) logger名稱(黃) - 訊息
+    # %X{correlationId:-} 撈 MDC 裡的追蹤 ID（CorrelationIdFilter 放進去的）。
+    # 完整說明見 account 的 application.yaml。
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
   # ⚠ 這個名字決定去 Config Server 拿哪個檔案：card → configyml/card.yml
@@ -65,7 +70,11 @@ spring:
     #   自動選方言，寫死會導致換 Postgres 時用錯語法。
     hibernate:
       ddl-auto: validate   # 只驗證 Entity 與資料表是否相符，不自動改結構
-    show-sql: true
+
+    # ⚠ 刻意「不用 show-sql: true」—— 那個是 Hibernate 直接 System.out.println，
+    #   完全不經過 logback，印出來的 SQL 沒有時間、沒有執行緒、也沒有追蹤 ID。
+    #   改用上面 logging.level 的 org.hibernate.SQL: DEBUG。
+    show-sql: false
     properties:
       hibernate:
         format_sql: true

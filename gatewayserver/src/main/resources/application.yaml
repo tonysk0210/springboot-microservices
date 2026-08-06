@@ -61,3 +61,9 @@ management:
 
     env:
       show-values: ALWAYS   # 會印出明文連線字串與密碼，只適合本機
+
+logging:
+  level:
+    com:
+      example:
+        gatewayserver: DEBUG # 設定日誌等級
