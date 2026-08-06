@@ -74,6 +74,51 @@ spring:
       circuitbreaker:
         enabled: true
 
+    # ⚠⚠ 這一行不能省，少了它「correlation-id 會斷在 account」⚠⚠
+    #
+    # ── 發生什麼事 ──────────────────────────────────────────────────────────
+    # 上面開了斷路器之後，Feign 的呼叫「被搬到另一條執行緒上跑」：
+    #
+    #     A = http-nio-8080-exec-5   Tomcat 處理這次請求的執行緒
+    #     B = pool-3-thread-3        斷路器自己的執行緒池
+    #
+    #     A  Controller → Service → 查 DB          都在 A
+    #     B      └─ 打 loan / card                 只有這段跑到 B
+    #     A  組回應、跑 fallback                    回到 A
+    #
+    # correlation-id 放在 MDC，而 MDC 是「每條執行緒各一份」，不會跟著工作走。
+    # 所以 B 拿到的是空的：
+    #     [http-nio-8080-exec-5] [account,aaea4764-...]   ← A，有 ID
+    #     [pool-3-thread-3]      [account,]               ← B，沒 ID
+    #
+    # 更麻煩的是 FeignInterceptorConfig 也在 B 上執行 —— 它從 MDC 撈 ID 來加標頭，
+    # 撈到 null 就不加，所以 loan / card 收到的請求「沒有 myBank-correlation-id」，
+    # 追蹤鏈直接斷在 account。而且完全不會報錯。
+    #
+    # ── 為什麼要換執行緒 ────────────────────────────────────────────────────
+    # 為了 TimeLimiter（超時強制中斷）。一條執行緒卡在等網路時就什麼都做不了，
+    # 包括「數秒數、時間到就放棄」—— 你不能一邊睡覺一邊叫自己起床。
+    # 所以要兩個人：B 去打 HTTP，A 在旁邊計時，時間到由 A 喊停 B。
+    #
+    # ── 這行做什麼 ──────────────────────────────────────────────────────────
+    # 不要那條執行緒池了，工作就在 A 上做完 → MDC 保住。
+    # ⚠ 副作用：TimeLimiter 失效（原始碼裡它只在「有執行緒池」的分支才套用）。
+    #   但 Feign 自己的 connect-timeout / read-timeout（上面 2 秒 / 5 秒）本來就
+    #   會擋住卡住的 HTTP 呼叫，而且分得出「連不上」和「回得慢」，更精準。
+    #
+    # ⚠ 只關 TimeLimiter（disable-time-limiter）沒有用 —— 原始碼的分支條件是
+    #   「executorService 是不是 null」，跟 TimeLimiter 無關，照樣換執行緒。
+    #
+    # ── 另一種解法（本專案不採用）────────────────────────────────────────────
+    # 保留執行緒池，改用 Customizer 換掉工廠的 ExecutorService
+    #（configureExecutorService），自己包一層在提交時複製 MDC 過去。
+    # ⚠ 不能用 Resilience4j 的 ContextPropagator —— 那個只對它自家的
+    #   ThreadPoolBulkhead 生效，這裡用的是普通的 Executors.newCachedThreadPool()。
+    # 要多寫幾十行來換一個 Feign 已經有的功能，不划算。
+    circuitbreaker:
+      resilience4j:
+        disable-thread-pool: true
+
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
   #    寫出來只是讓依賴關係看得見，以及容器化時知道要改哪一行。
