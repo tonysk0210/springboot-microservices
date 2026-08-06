@@ -25,7 +25,7 @@ public class RouteConfig {
                                 f.rewritePath("/bank/account/(?<segment>.*)", "/${segment}")
                                         .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
                         )
-                        // lb:// = 去 Eureka 查實例。⚠ 名字要對上 spring.application.name
+                        // lb:// = 去 Eureka 查實例。名字要對上 spring.application.name
                         .uri("lb://ACCOUNT"))
 
                 .route(p -> p

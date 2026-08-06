@@ -14,23 +14,23 @@ spring:
 
 eureka:
   instance:
-    # ⚠ 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
+    # 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
     prefer-ip-address: true
 
   client:
-    # ⚠⚠ 不能省 —— 少了它 push 之後服務會從 Eureka 消失（rebind 清空 hostname，
+    # 不能省 —— 少了它 push 之後服務會從 Eureka 消失（rebind 清空 hostname，
     #   註冊回 400 且無限重試）。診斷見 account 的 application.yaml。
     refresh:
       enable: false
 
-    # 🔑 fetch-registry 才是關鍵 —— 路由的 lb://ACCOUNT 靠它換成實際位址。
+    # fetch-registry 才是關鍵 —— 路由的 lb://ACCOUNT 靠它換成實際位址。
     #    register 只是讓儀表板看得到。
     register-with-eureka: true
     fetch-registry: true
 
     service-url:
-      # ⚠ 結尾 /eureka/ 不能省（/ 是儀表板網頁）。
-      # ⚠ defaultZone 必須駝峰式，寫成 default-zone 不報錯只失效。
+      # 結尾 /eureka/ 不能省（/ 是儀表板網頁）。
+      # defaultZone 必須駝峰式，寫成 default-zone 不報錯只失效。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
 
 info:
@@ -47,17 +47,17 @@ management:
 
   info:
     env:
-      enabled: true      # ⚠ 沒這行 /actuator/info 回空的 {}
+      enabled: true      # 沒這行 /actuator/info 回空的 {}
 
   endpoint:
     health:
       show-details: always
 
-    # 🔑 /actuator/gateway/routes 是查「實際生效的路由」唯一可靠的方法。
-    # ⚠ 要 unrestricted 是因為它能 POST 新增 / DELETE 刪路由。
-    # ⚠⚠ 無驗證就能改路由 = 流量可被導走，正式環境必關。
+    # /actuator/gateway/routes 是查「實際生效的路由」唯一可靠的方法。
+    # 要 unrestricted 是因為它能 POST 新增 / DELETE 刪路由。
+    # 無驗證就能改路由 = 流量可被導走，正式環境必關。
     gateway:
       access: unrestricted
 
     env:
-      show-values: ALWAYS   # ⚠⚠ 會印出明文連線字串與密碼，只適合本機
+      show-values: ALWAYS   # 會印出明文連線字串與密碼，只適合本機
