@@ -1,13 +1,15 @@
 # =============================================================================
-#  六個容器的編排：改成一行 docker compose up -d
+#  七個容器的編排：改成一行 docker compose up -d
 #
-#    rabbitmq      Bus 的訊息中介，configserver 和三個服務都連它
-#    configserver  設定中心，其他四個向它拿設定
-#    eurekaserver  服務註冊中心，三個服務在此登記、互相查找
+#    rabbitmq      Bus 的訊息中介，configserver 和四個 Spring 服務都連它
+#    configserver  設定中心，其他五個向它拿設定
+#    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
 #    account / loan / card
+#    gatewayserver 對外單一入口（8072），路由到三個服務
 #
-#  啟動順序（rabbitmq → configserver → eurekaserver → 三個服務）
+#  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card / gatewayserver）
 #  由 depends_on + healthcheck 保證。
+#  ⚠ 最後四個是「平行啟動」的，gatewayserver 不等三個服務 —— 原因見它自己那段。
 #  共用設定（JVM 參數、環境變數、記憶體上限、depends_on）抽在 common.yml，用 extends 繼承。
 #
 #  ⚠ 執行前專案根目錄要有 .env（裡面要有 ENCRYPT_KEY），沒有的話 compose 會直接失敗。
@@ -318,6 +320,54 @@ services:
       retries: 5
       start_period: 40s
 
+  # ---------------------------------------------------------------------------
+  #  gatewayserver —— 對外單一入口
+  #
+  #  外面只需要開 8072 一個 port，三個服務的 8080 / 8090 / 9000 其實可以全部關掉
+  #  （目前留著是為了直接打單一服務除錯、開各自的 swagger-ui）。
+  #
+  #      http://localhost:8072/bank/account/api/fetch-account
+  #      http://localhost:8072/bank/loan/api/fetch-loan
+  #      http://localhost:8072/bank/card/api/fetch-card
+  # ---------------------------------------------------------------------------
+  gatewayserver:
+    # image 由 Jib 建：cd gatewayserver && ./mvnw compile jib:dockerBuild
+    image: anthonysk/gatewayserver:0.0.1-SNAPSHOT
+    container_name: gatewayserver-ms
+    ports:
+      - "8072:8072"
+
+    # 跟三個服務用同一層 —— 它同樣要向 Config Server 拿設定、要註冊到 Eureka、
+    # 要連 RabbitMQ 收 Bus 廣播。
+    #
+    # ⚠ 這層會順帶帶進兩個 H2 Console 的環境變數。gatewayserver 沒有資料庫，
+    #   那兩個設定不會有任何作用（Spring 對不認識的 property 直接忽略），
+    #   留著只是為了不用再多開一層 base。
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    # ⚠ 這裡刻意「不」depends_on account / loan / card。
+    #
+    #   路由是 RouteConfig 寫死的（lb://ACCOUNT），路由表在啟動時就建好，
+    #   跟三個服務在不在完全無關 —— 服務沒起就是回 503，等它們註冊到 Eureka
+    #   之後 30 秒內自動可用。
+    #
+    #   加了 depends_on 反而把「各自獨立部署」綁回去：任何一個服務重啟，
+    #   Gateway 也要跟著等。
+    #
+    # ⚠ 唯一的例外是自動路由（discovery.locator.enabled: true）——
+    #   那時路由「從 Eureka 名冊生成」，名冊空的就沒有路由，打進來是 404。
+    #   本專案設 false，所以不受影響。
+
+    healthcheck:
+      # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver。
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8072/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
 
 # =============================================================================
 #  named volume 宣告
@@ -365,9 +415,10 @@ volumes:
 #  cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
 #  cd loan;         ./mvnw spring-boot:build-image                       （Buildpacks）
 #  cd card;         ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd gatewayserver; ./mvnw compile jib:dockerBuild                      （Jib）
 #
 #  ⚠ 本機若還有 IntelliJ / mvnw 跑著同樣的服務，port 會衝突
-#    （8070 / 8071 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
+#    （8070 / 8071 / 8072 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
 #
 #  ── 跑 ────────────────────────────────────────────────────────────────────
 #  docker compose up -d              全部啟動
@@ -385,9 +436,12 @@ volumes:
 #  wget -qO- http://configserver:8071/actuator/health    → {"status":"UP"}
 #
 #  ── 主機端可開的網址 ──────────────────────────────────────────────────────
+#    http://localhost:8072/bank/account/api/fetch-account?mobileNumber=...
+#                                                  ↑ 正式入口，走 Gateway
+#    http://localhost:8072/actuator/gateway/routes 目前生效的路由表
 #    http://localhost:8080/swagger-ui/index.html   account（8090 loan、9000 card）
 #    http://localhost:8071/account/default         configserver 提供給 account 的設定
-#    http://localhost:8070                         Eureka 儀表板（三個服務都該在上面）
+#    http://localhost:8070                         Eureka 儀表板（四個服務都該在上面）
 #    http://localhost:15672                        RabbitMQ 管理介面
 #
 #  ⚠ 改了程式碼、重建 image 之後一定要再 up 一次 —— 已在跑的容器不會自動換。
