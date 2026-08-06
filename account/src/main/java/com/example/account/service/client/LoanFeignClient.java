@@ -1,6 +1,7 @@
 package com.example.account.service.client;
 
 import com.example.account.dto.LoanDto;
+import com.example.account.service.client.fallback.LoanFallback;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 // ⚠ 寫錯的症狀是「啟動正常，呼叫才炸」：No servers available for service: xxx
 // 🔑 加 url 就跳過服務發現，直接打固定位址（適合呼叫外部 API）：
 //    @FeignClient(name = "loan", url = "${loan.base-url:http://localhost:8090}")
-@FeignClient(name = "loan")
+@FeignClient(name = "loan", fallback = LoanFallback.class)
 public interface LoanFeignClient {
 
     // ⚠ 路徑要完整，含 loan 那邊 @RequestMapping("/api") 的前綴 —— Feign 不會幫你補。

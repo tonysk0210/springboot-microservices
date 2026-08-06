@@ -70,6 +70,10 @@ spring:
             connect-timeout: 2000
             read-timeout: 5000
 
+      # 讓 Feign 呼叫交由 Spring Cloud CircuitBreaker 包裝，以套用斷路與 fallback。
+      circuitbreaker:
+        enabled: true
+
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
   #    寫出來只是讓依賴關係看得見，以及容器化時知道要改哪一行。
@@ -208,7 +212,19 @@ management:
         # 🔑 兩個都留著，除錯時可以把問題切一半：busrefresh 打了某個服務沒更新，
         #    就單獨對它打 refresh —— 有更新代表問題在 Bus（沒收到廣播），
         #    沒更新代表問題在 Config Server 那側（通常是忘記 push）。
-        include: health,info,env,refresh,busrefresh,shutdown
+        #
+        # circuitbreakers       看 account → loan / card 兩個斷路器的狀態
+        # circuitbreakerevents  看每次呼叫的成敗與狀態轉換
+        # 🔑 這裡看到的跟 gateway 的是「不同的斷路器」——
+        #    gateway 那組監視 gateway → account，這組監視 account → loan / card。
+        #    loan 掛掉時只有這組會出現 ERROR，gateway 那組照樣是 SUCCESS
+        #    （因為 account 有正常回應 200）。
+        include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents
+
+  # 把斷路器狀態併進 /actuator/health（預設是關的）。
+  health:
+    circuitbreakers:
+      enabled: true
 
   # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
   #     none          端點不存在（連 bean 都不會建）
@@ -274,3 +290,14 @@ management:
   info:
     env:
       enabled: true
+
+# Resilience4j Circuit Breaker 的共用預設設定。
+# CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；
+# OPEN 等待指定時間後轉為 HALF_OPEN，以少量試探請求判斷下游是否恢復。
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      slidingWindowSize: 10                    # 以最近 10 次呼叫作為失敗率統計視窗
+      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
+      failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
+      waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN

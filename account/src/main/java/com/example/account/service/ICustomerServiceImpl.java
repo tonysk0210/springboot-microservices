@@ -16,6 +16,7 @@ import com.example.account.service.client.LoanFeignClient;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -70,7 +71,10 @@ public class ICustomerServiceImpl implements ICustomerService {
     // ─────────────────────────────────────────────────────────────────────────
     private LoanDto fetchLoanOrNull(String mobileNumber) {
         try {
-            return loanFeignClient.fetchLoanDetails(mobileNumber).getBody();
+            ResponseEntity<LoanDto> response = loanFeignClient.fetchLoanDetails(mobileNumber);
+            // ⚠ 防 null：fallback 若被改成回 null 就會在這裡 NPE。
+            //   自己防一手，不依賴別人怎麼寫 fallback。
+            return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有貸款資料", mobileNumber);
             return null;
@@ -79,7 +83,8 @@ public class ICustomerServiceImpl implements ICustomerService {
 
     private CardDto fetchCardOrNull(String mobileNumber) {
         try {
-            return cardFeignClient.fetchCardDetails(mobileNumber).getBody();
+            ResponseEntity<CardDto> response = cardFeignClient.fetchCardDetails(mobileNumber);
+            return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有信用卡資料", mobileNumber);
             return null;
