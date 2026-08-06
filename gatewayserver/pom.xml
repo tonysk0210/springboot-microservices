@@ -38,17 +38,16 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
-        </dependency>
-        <!-- WebFlux API Gateway：提供路由、斷言、過濾器及管理端點。
-             設定使用 spring.cloud.gateway.server.webflux.*。 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
         </dependency>
         <!-- Eureka Client：讓 lb://SERVICE 透過服務名稱尋找可用實例。 -->
         <dependency>
@@ -60,6 +59,18 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
+        <!-- Spring Cloud Gateway 的 WebFlux／Reactor 實作：以非阻塞方式進行路由轉送，
+             並支援路由斷言與 Gateway filters；相關設定使用 spring.cloud.gateway.server.webflux.*。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+        </dependency>
+        <!-- WebFlux Gateway 的 Reactive Circuit Breaker：整合 Reactor Resilience4j，
+             供 Gateway CircuitBreaker filter 執行斷路保護與 fallback。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>
@@ -70,6 +81,7 @@
             <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
+
 
     </dependencies>
     <dependencyManagement>

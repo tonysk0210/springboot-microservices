@@ -43,7 +43,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,env,refresh,busrefresh,gateway
+        include: health,info,env,refresh,busrefresh,gateway,circuitbreakers,circuitbreakerevents
+
+  # 把斷路器狀態併進 /actuator/health，跳開的那個會顯示 CIRCUIT_OPEN。
+  # ⚠ 預設是關的。
+  health:
+    circuitbreakers:
+      enabled: true
 
   info:
     env:
@@ -67,3 +73,14 @@ logging:
     com:
       example:
         gatewayserver: DEBUG # 設定日誌等級
+
+# Resilience4j Circuit Breaker 的共用預設設定。
+# CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；
+# OPEN 等待指定時間後轉為 HALF_OPEN，以少量試探請求判斷下游是否恢復。
+resilience4j.circuitbreaker:
+  configs:
+    default:
+      slidingWindowSize: 10                    # 以最近 10 次呼叫作為失敗率統計視窗
+      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
+      failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
+      waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN

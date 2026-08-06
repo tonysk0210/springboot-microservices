@@ -24,6 +24,10 @@ public class RouteConfig {
                         .filters(f ->
                                 f.rewritePath("/bank/account/(?<segment>.*)", "/${segment}")
                                         .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
+                                        // 使用此名稱識別並套用 account 路由的斷路器設定。
+                                        .circuitBreaker(config -> config.setName("accountCircuitBreaker")
+                                                // 斷路時在 Gateway 內部轉發至替代回應端點。
+                                                .setFallbackUri("forward:/contactSupport"))
                         )
                         // lb:// = 去 Eureka 查實例。名字要對上 spring.application.name
                         .uri("lb://ACCOUNT"))
