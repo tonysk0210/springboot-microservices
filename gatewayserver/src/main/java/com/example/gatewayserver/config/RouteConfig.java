@@ -39,7 +39,8 @@ public class RouteConfig {
                         .filters(f ->
                                 f.rewritePath("/bank/loan/(?<segment>.*)", "/${segment}")
                                         .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                        .retry(retryConfig -> retryConfig.setRetries(3) // 重試次數
+                                        // ⚠ 這是 Spring Cloud Gateway 自己的 retry（RetryGatewayFilterFactory），跟 account 用的 Resilience4j @Retry 是兩套不同的東西。
+                                        .retry(retryConfig -> retryConfig.setRetries(3) // 重試次數（不含第一次，總共打 4 次）
                                                 .setMethods(HttpMethod.GET) // 只對 GET 方法重試
                                                 .setBackoff(
                                                         // 第一次重試前等待 100 ms。

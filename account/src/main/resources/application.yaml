@@ -356,3 +356,15 @@ resilience4j.circuitbreaker:
       permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
       failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
       waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN
+
+resilience4j.retry:
+  configs:
+    default:
+      maxAttempts: 4
+      waitDuration: 100
+      enableExponentialBackoff: true       # 100 → 200 → 400
+      exponentialBackoffMultiplier: 2
+      exponentialMaxWaitDuration: 1s
+      ignoreExceptions: # 這些「絕對不重試」
+        - com.example.account.exception.ResourceNotFoundException
+        - com.example.account.exception.CustomerAlreadyExistsException

@@ -5,6 +5,7 @@ import com.example.account.dto.CustomerDto;
 import com.example.account.dto.ErrorResponseDto;
 import com.example.account.dto.ResponseDto;
 import com.example.account.service.IAccountService;
+import io.github.resilience4j.retry.annotation.Retry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -14,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
         name = "帳戶 CRUD API",                      // Swagger UI 的分組標題，取代預設的 account-controller
         description = "帳戶與客戶資料的建立、查詢、更新、刪除"   // 分組標題下方的說明
 )
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping(value = "/api", produces = MediaType.APPLICATION_JSON_VALUE)   // 全部 API 統一回 application/json
@@ -138,5 +141,27 @@ public class AccountController {
         return ResponseEntity
                 .status(HttpStatus.OK)
                 .body(accountContactInfoDto);
+    }
+
+    // 套用名為 testRetry 的重試設定；方法持續拋出例外且重試耗盡後，才呼叫 fallback。
+    // ⚠ 這是 Resilience4j 原生的 @Retry（走 AOP，設定在 yaml 的 resilience4j.retry），跟 gateway 路由上的 .retry(...) 是兩套不同的東西 —— 那個是 Spring Cloud Gateway 自己的。
+    //   Spring Cloud 只對 CircuitBreaker 做了抽象層，Retry 沒有，所以這裡直接用原生的。
+    @Retry(name = "testRetry", fallbackMethod = "testRetryFallback")
+    @GetMapping("/test-retry")
+    public ResponseEntity<String> testRetry() {
+        // 目前固定成功且不會拋出例外，因此實際上不會觸發重試。
+        log.info("測試 retry 呼叫 testRetry()");
+        throw new RuntimeException("測試 retry 呼叫 testRetry()");
+        /*return ResponseEntity
+                .status(HttpStatus.OK)
+                .body("測試 retry 呼叫 testRetry()");*/
+    }
+
+    // fallback 的回傳型別需相同，並以 Throwable 接收最後的失敗原因。
+    public ResponseEntity<String> testRetryFallback(Throwable throwable) {
+        log.info("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
     }
 }
