@@ -4,7 +4,9 @@ import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
@@ -37,7 +39,17 @@ public class RouteConfig {
                         .filters(f ->
                                 f.rewritePath("/bank/loan/(?<segment>.*)", "/${segment}")
                                         .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                        )
+                                        .retry(retryConfig -> retryConfig.setRetries(3) // 重試次數
+                                                .setMethods(HttpMethod.GET) // 只對 GET 方法重試
+                                                .setBackoff(
+                                                        // 第一次重試前等待 100 ms。
+                                                        Duration.ofMillis(100),
+                                                        // 單次等待時間最多 1 秒。(休息時間)
+                                                        Duration.ofMillis(1000),
+                                                        // 每次等待時間乘以 2。
+                                                        2,
+                                                        // 以上一次等待時間為基準計算下一次延遲。
+                                                        true)))
                         .uri("lb://LOAN"))
 
                 .route(p -> p

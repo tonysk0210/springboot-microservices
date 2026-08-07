@@ -65,10 +65,20 @@ spring:
             # ⚠ 只設這裡沒用，上面 logging.level 那個套件必須是 DEBUG。
             loggerLevel: full
 
-            # 順便設逾時。⚠ 預設值很寬鬆（連線 10 秒、讀取 60 秒），
+            # 逾時。⚠ 預設值很寬鬆（連線 10 秒、讀取 60 秒），
             #   對方卡住時你的執行緒也跟著卡 60 秒，連鎖拖垮很容易發生。
-            connect-timeout: 2000
-            read-timeout: 5000
+            #
+            # 🔑 這是「最內層」的逾時，要比 gateway 的短，整組是：
+            #        本檔案 read-timeout              2s   ← 最內層
+            #        gateway 的 response-timeout      5s
+            #        gateway 的 timelimiter           8s   ← 最外層
+            #    外層比內層短的話，account 還在等 loan、gateway 已經回 504 了，
+            #    那些工作全部白做，log 上還會出現「gateway 逾時但 account 成功」的矛盾。
+            #
+            # ⚠ 這裡的 2 秒是「單一次」Feign 呼叫。account 要打 loan 和 card 兩次，
+            #   最壞情況 2 + 2 = 4 秒，仍在 gateway 的 5 秒之內。
+            connect-timeout: 1000
+            read-timeout: 2000
 
       # 讓 Feign 呼叫交由 Spring Cloud CircuitBreaker 包裝，以套用斷路與 fallback。
       circuitbreaker:
