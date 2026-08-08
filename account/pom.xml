@@ -165,8 +165,9 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
-        <!-- Spring Cloud Circuit Breaker 的 Resilience4j 實作：
-             供 account 對下游服務的呼叫加入斷路、重試與 fallback 保護。 -->
+        <!-- Spring Cloud Circuit Breaker 的 Resilience4j 實作。
+             ⚠ 名字只寫 circuitbreaker，實際上整套都帶進來了 —— 斷路器、逾時、@Retry、@RateLimiter 都不用再加依賴。
+             ⚠ 只有 bulkhead（限併發）沒帶，要用得自己加 resilience4j-bulkhead。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>

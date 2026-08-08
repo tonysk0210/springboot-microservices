@@ -461,7 +461,7 @@ volumes:
 #  cd configserver; ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd eurekaserver; ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
-#  cd loan;         ./mvnw spring-boot:build-image                       （Buildpacks）
+#  cd loan;         ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks）
 #  cd card;         ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd gatewayserver; ./mvnw compile jib:dockerBuild                      （Jib）
 #
