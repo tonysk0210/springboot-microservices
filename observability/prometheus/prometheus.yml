@@ -1,0 +1,84 @@
+# =============================================================================
+#  Prometheus —— 指標的「巡邏名單」
+#
+#  🔑 跟 log 的方向相反：
+#      Log      alloy 問 Docker 要 → 服務完全不知情
+#      Metrics  Prometheus「主動打」你的服務 → 必須連得到
+#
+#  ── 為什麼 targets 寫 host.docker.internal 而不是容器名 ─────────────────────
+#
+#  你的服務有兩種跑法，容器名只涵蓋其中一種：
+#
+#      服務跑在容器      account:8080              ✅ 通
+#      服務跑在 IntelliJ  account:8080             ❌ lookup account: no such host
+#
+#  host.docker.internal 指向「跑 Docker 的那台電腦」（你的 Windows），兩種都通：
+#
+#      服務跑在 IntelliJ  → Windows 的 8080                    ✅
+#      服務跑在容器      → ports 8080:8080 映射出來的那個 → 容器 ✅
+#      （實測：從 prometheus 容器打 host.docker.internal:15672 和 :3000，
+#        兩個都是「跑在容器裡」的服務，一樣打得到）
+#
+#  🔑 所以只寫這一種就好，不用在兩種寫法之間手動切換。
+#
+#  ⚠ 前提是服務要有 ports: 映射 —— 六個都有。哪天為了收斂對外埠拿掉了，
+#    容器模式就會斷，那時得改回容器名。
+#  ⚠ 代價是繞一圈（容器 → 主機 → 容器），多一次 NAT。每 15 秒一次，可忽略。
+#  ⚠ host.docker.internal 是 Docker Desktop（Windows / Mac）內建的。
+#    Linux 的 Docker Engine 沒有，要在 compose 補 extra_hosts（已補，見 compose.yml）。
+#  ⚠ 正式環境不會用這個寫法 —— 那時服務一定跑容器，直接用服務名即可。
+#
+#  ── 其他 ──────────────────────────────────────────────────────────────────
+#  ⚠ port 寫「主機映射的那個」（左邊那個數字），不是容器內部的。
+#    本專案兩邊剛好一樣（8080:8080），但哪天改成 18080:8080 就要寫 18080。
+#  ⚠ 位址打錯不會報錯，只會在 http://localhost:9090/targets 顯示 DOWN，
+#    然後你在 Grafana 上就是查不到那個服務的資料。
+#  🔑 改完這個檔案不用重啟容器，熱載入即可（--web.enable-lifecycle 就是為此而加）：
+#        curl.exe -XPOST http://localhost:9090/-/reload
+# =============================================================================
+
+global:
+  scrape_interval: 15s        # 每 15 秒巡一輪
+  evaluation_interval: 15s
+  # ⚠ 課程用 5s。間隔越短資料越細，但儲存量和 CPU 也越高。
+  #   本機 6 個服務、學習用途，15s 綽綽有餘（Prometheus 官方預設就是 15s）。
+
+scrape_configs:
+  # ── 四個 Spring 微服務 ─────────────────────────────────────────────────────
+  - job_name: 'account'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:8080' ]
+
+  - job_name: 'loan'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:8090' ]
+
+  - job_name: 'card'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:9000' ]
+
+  - job_name: 'gatewayserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:8072' ]
+
+  # ── 兩個基礎設施服務 ───────────────────────────────────────────────────────
+  - job_name: 'eurekaserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:8070' ]
+
+  - job_name: 'configserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'host.docker.internal:8071' ]
+
+  # ── Prometheus 自己 ───────────────────────────────────────────────────────
+  # 監控系統自己也要被監控，不然它掛了沒人知道。
+  # ⚠ 這個用 localhost 是對的 —— 它就在 Prometheus 容器自己裡面。
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: [ 'localhost:9090' ]

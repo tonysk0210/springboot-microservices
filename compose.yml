@@ -513,6 +513,49 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
+  #  prometheus —— 指標的收集與儲存  http://localhost:9090
+  #
+  #  🔑 跟 loki 的方向相反：
+  #      loki       被動等 alloy 推進來
+  #      prometheus 主動每 15 秒去打六個服務的 /actuator/prometheus
+  #
+  #  ⚠ 所以它「必須」跟微服務在同一個網路 —— 這就是把觀測性合併進本檔案
+  #    而不是放另一份 compose 的主要理由。log 反而不需要。
+  #
+  #  查抓取狀態：http://localhost:9090/targets （每個服務是 UP 還是 DOWN）
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.8.0
+    container_name: prometheus-ms
+    profiles: [ "observability" ]
+    ports:
+      - "9090:9090"    # ⚠ 跟 card 的 9000 不同，不會撞
+
+    volumes:
+      # 巡邏名單（去哪抓、多久抓一次）
+      - "./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      # 指標資料。不留的話容器重建就從零開始，歷史圖表全沒了。
+      - "prometheus-data:/prometheus"
+
+    # ⚠ 掛了自訂設定檔就必須把 command 整組寫出來 ——
+    #   image 內建的 CMD 會被覆蓋，少寫 --storage.tsdb.path 那行資料就不會寫進 volume。
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle          # 允許 POST /-/reload 熱載入設定，不用重啟
+
+    # prometheus.yml 的 targets 用 host.docker.internal（原因見那個檔案的說明）。
+    # ⚠ 那個名字在 Docker Desktop（Windows / Mac）是內建的，這行是多餘的；
+    #   但在 Linux 的 Docker Engine 沒有內建，少了它全部 target 會 DOWN。
+    #   加著不會衝突，換到 Linux 環境時省下一次「為什麼壞掉」的查修。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  grafana —— 查詢畫面（「螢幕」）  http://localhost:3000
   # ---------------------------------------------------------------------------
   grafana:
@@ -538,6 +581,8 @@ services:
     depends_on:
       loki:
         condition: service_started   # loki 沒有 healthcheck，見上方說明
+      prometheus:
+        condition: service_started
 
     extends:
       file: common.yml
@@ -560,8 +605,9 @@ volumes:
   card-data:
   rabbitmq-data:
   # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
-  loki-data:       # log 本體，不留的話容器重建就全沒了
-  grafana-data:    # 你在畫面上存的儀表板
+  loki-data:         # log 本體，不留的話容器重建就全沒了
+  prometheus-data:   # 指標的歷史資料
+  grafana-data:      # 你在畫面上存的儀表板
 
 
 # =============================================================================
