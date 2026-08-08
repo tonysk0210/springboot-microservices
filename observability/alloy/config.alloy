@@ -1,0 +1,43 @@
+// =============================================================================
+//  Alloy —— log 收集代理（Promtail 的後繼者，Promtail 已於 2025-03 停止維護）
+//
+//  它「不跟你的容器說話」，而是直接問 Docker 要 log ——
+//  跟你打 docker logs account-ms 是同一個來源。
+//  所以不管容器在哪個網路都收得到。
+//
+//  ⚠ 語法是 Alloy 自己的（.alloy 格式），不是 YAML。
+// =============================================================================
+
+// ① 去哪找 log —— 掃描本機所有 Docker 容器，每 5 秒更新一次清單
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+}
+
+// ② 貼標籤 —— 把容器名變成 Grafana 裡可以篩選的 container 標籤
+//    ⚠ Docker 給的名字前面有一條斜線（/account-ms），regex 把它去掉
+discovery.relabel "containers" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+// ③ 開始收 —— 收到的往 ④ 送
+loki.source.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.containers.targets
+	forward_to       = [loki.write.default.receiver]
+	relabel_rules    = discovery.relabel.containers.rules
+	refresh_interval = "5s"
+}
+
+// ④ 送去哪 —— loki 是 compose 裡的服務名，同一個網路才通得到
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

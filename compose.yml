@@ -416,6 +416,133 @@ services:
       retries: 5
       start_period: 40s
 
+  # ###########################################################################
+  # ###########################################################################
+  # ##                                                                       ##
+  # ##            以下為「觀測性」堆疊，跟上面的微服務完全分開                  ##
+  # ##                                                                       ##
+  # ##   平常不會啟動（profiles: observability）。要用時多加一個參數：          ##
+  # ##       docker compose --profile observability up -d                    ##
+  # ##   只關觀測性：                                                         ##
+  # ##       docker compose --profile observability stop loki alloy grafana  ##
+  # ##                                                                       ##
+  # ##   三個角色，用監視器比喻：                                              ##
+  # ##       alloy    攝影機 —— 從 Docker 撈所有容器的 log                     ##
+  # ##       loki     硬碟   —— 存起來、提供查詢                              ##
+  # ##       grafana  螢幕   —— 畫面 http://localhost:3000                    ##
+  # ##                                                                       ##
+  # ##   資料流：容器印 log → Docker 收著 → alloy 撈走 → loki 存 → grafana 看  ##
+  # ##                                                                       ##
+  # ##   設定檔放在 observability/，一個資料夾一個角色：                        ##
+  # ##       observability/alloy/config.alloy                                ##
+  # ##       observability/grafana/datasource.yml                            ##
+  # ##   （loki 用 image 內建的預設設定，不需要設定檔）                         ##
+  # ##                                                                       ##
+  # ##   ⚠ 刻意「不用」Grafana 官方範例那份 7 容器的架構                       ##
+  # ##     （read/write/backend 拆分 + nginx + MinIO）——                     ##
+  # ##     那是在示範水平擴充，本機用不到，而且 MinIO 佔用 9000 會撞到 card。   ##
+  # ##                                                                       ##
+  # ##   之後要加 Prometheus（指標）和 Tempo（追蹤）就加在這個區塊裡。          ##
+  # ##   ⚠ 那兩個「必須」跟微服務同網路（Prometheus 要主動抓 /actuator，        ##
+  # ##     Tempo 要接收服務送來的 span）——合併進本檔案就是為了這件事。         ##
+  # ##     Log 反而不需要同網路，因為 alloy 是問 Docker 不是問容器。           ##
+  # ##                                                                       ##
+  # ###########################################################################
+  # ###########################################################################
+
+  # ---------------------------------------------------------------------------
+  #  loki —— log 的儲存與查詢（「硬碟」）
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.6.2
+    container_name: loki-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3100:3100"    # alloy 往這裡推送，grafana 從這裡查詢
+
+    # ⚠ 不掛任何設定檔 —— image 內建的 /etc/loki/local-config.yaml 就是
+    #   「單體模式 + 存本機檔案」，正是本機開發要的。
+    #   官方範例那份 loki-config.yaml 綁死了 memberlist 和 MinIO，
+    #   少了那些容器會直接啟動失敗，所以刻意不用。
+    volumes:
+      - "loki-data:/loki"
+
+    # ⚠ 刻意「沒有 healthcheck」—— 這個 image 是 distroless：
+    #     沒有 sh、沒有 wget、沒有 curl，任何指令都跑不起來
+    #     Grafana 官方範例寫的 loki -health 在 3.6.2 已經被移除（flag not defined）
+    #   所以下面兩個服務用 service_started 而不是 service_healthy。
+    #   代價很小：alloy 推不進去會自己重試，grafana 查不到重整一下就好。
+    #   要確認它活著就從主機打：curl http://localhost:3100/ready → ready
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  alloy —— log 收集代理（「攝影機」）
+  # ---------------------------------------------------------------------------
+  alloy:
+    image: grafana/alloy:v1.12.0
+    container_name: alloy-ms
+    profiles: [ "observability" ]
+    ports:
+      - "12345:12345"    # Alloy 自己的除錯畫面 http://localhost:12345
+
+    volumes:
+      # 設定檔（唯讀）
+      - "./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro"
+      # 🔑 關鍵的一行：把 Docker 的控制通道掛進去。
+      #    alloy 靠它直接問 Docker 要所有容器的 log，不需要跟那些容器同網路，
+      #    也不需要對方配合 —— 跟你打 docker logs 是同一個來源。
+      # ⚠ 代價：拿到這個等於對 Docker 有完全控制權（能建能刪任何容器）。
+      #   本機開發無所謂，正式環境要用受限的 socket proxy。
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+
+    depends_on:
+      loki:
+        condition: service_started   # loki 沒有 healthcheck，見上方說明
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  grafana —— 查詢畫面（「螢幕」）  http://localhost:3000
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:12.3.0
+    container_name: grafana-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3000:3000"
+
+    environment:
+      # 免登入，直接進去就是管理員。⚠ 只適合本機。
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+
+    volumes:
+      # 開機時自動掛好 Loki 資料源，不用手動在畫面上設定。
+      # ⚠ 右邊的路徑不能改，Grafana 只掃這個資料夾。
+      - "./observability/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro"
+      # 讓你在畫面上存的儀表板不會因為容器重建而消失
+      - "grafana-data:/var/lib/grafana"
+
+    depends_on:
+      loki:
+        condition: service_started   # loki 沒有 healthcheck，見上方說明
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
 
 # =============================================================================
 #  named volume 宣告
@@ -432,6 +559,9 @@ volumes:
   loan-data:
   card-data:
   rabbitmq-data:
+  # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
+  loki-data:       # log 本體，不留的話容器重建就全沒了
+  grafana-data:    # 你在畫面上存的儀表板
 
 
 # =============================================================================
