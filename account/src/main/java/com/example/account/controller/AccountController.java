@@ -158,12 +158,13 @@ public class AccountController {
                 .body("測試 retry 呼叫 testRetry()");*/
     }
 
-    // fallback 的回傳型別需相同，並以 Throwable 接收最後的失敗原因。
+    // 重試耗盡後走這裡。fallback 的回傳型別要跟原方法相同，並以 Throwable 接收最後的失敗原因。
+    // ⚠ 回 503 而不是 200 —— 呼叫端和監控要分得出「重試都失敗了」和「正常結果」。
     public ResponseEntity<String> testRetryFallback(Throwable throwable) {
-        log.warn("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
+        log.warn("測試 retry 重試耗盡，回傳 fallback 預設值：{}", throwable.toString());
         return ResponseEntity
-                .status(HttpStatus.OK)
-                .body("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body("服務暫時無法使用，請稍後再試");
     }
 
     // 套用名為 testRateLimiter 的限流設定；額度用完時直接走 fallback，方法本體不執行。
@@ -179,6 +180,9 @@ public class AccountController {
     @GetMapping("/test-rate-limiter")
     public ResponseEntity<String> testRateLimiter() {
         log.info("測試 rate limiter 呼叫 testRateLimiter()");
+        // ⚠ 這行讓「方法本身」失敗，用來對照：額度沒用完時走這裡（500），
+        //   額度用完時「連進都進不來」直接走 fallback（429）——
+        //   兩種狀況的狀態碼不同，一眼分得出是被限流還是方法自己爛掉。
         return ResponseEntity
                 .status(HttpStatus.OK)
                 .body("測試 rate limiter 呼叫 testRateLimiter()");
