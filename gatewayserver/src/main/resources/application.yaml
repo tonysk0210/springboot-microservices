@@ -34,6 +34,33 @@ spring:
             #   全部算在這 5 秒裡。gateway 只看自己送出到收回來多久。
             response-timeout: 5s
 
+  # RabbitMQ 連線（Spring Cloud Bus 用它接收 refresh 廣播）
+  # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
+  #    寫出來只是讓依賴關係看得見，跟 account / loan / card 的寫法一致。
+  # ⚠ 容器裡由 compose 覆寫：SPRING_RABBITMQ_HOST: rabbitmq
+  # ⚠ RabbitMQ 沒開時服務仍會啟動，但會在背景無限重連，而且收不到 Bus 廣播。
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+  # Redis —— 限流（RequestRateLimiter）的計數器。
+  #
+  # 🔑 為什麼不能存在記憶體：多台 gateway 會各算各的，「每秒 1 次」變成實際
+  #    可以打 N 次。Redis 是那份「共用的計數器」，Gateway 內建的 Lua 腳本
+  #    保證多台同時加也不會算錯。
+  #
+  # 🔑 這兩行同樣可以刪掉（預設就是 localhost:6379），寫出來讓依賴關係看得見。
+  # ⚠ 容器裡由 compose 覆寫：SPRING_DATA_REDIS_HOST: redis
+  # ⚠ Redis 沒開時 gateway「還是會啟動成功」（連線是延遲建立的），
+  #   但第一個經過限流 filter 的請求就爆 Connection refused ——
+  #   那種「啟動正常、一打就死」比啟動失敗難查得多。
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
 eureka:
   instance:
     # 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。

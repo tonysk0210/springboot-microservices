@@ -321,6 +321,38 @@ services:
       start_period: 40s
 
   # ---------------------------------------------------------------------------
+  #  redis —— Gateway 限流（RequestRateLimiter）的計數器
+  #
+  #  ⚠ 為什麼不能存在 gateway 的記憶體裡：多台 gateway 會各算各的，
+  #    「每秒 1 次」變成實際可以打 N 次。Redis 是那份「共用的計數器」，
+  #    而且 Gateway 內建的 Lua 腳本保證多台同時加也不會算錯。
+  #
+  #  資料長這樣（key 就是 KeyResolver 回傳的字串）：
+  #      request_rate_limiter.{alice}.tokens
+  #      request_rate_limiter.{anonymous}.tokens
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    container_name: redis-ms
+    ports:
+      - "6379:6379"    # 主機端連進來看資料用（docker exec redis-ms redis-cli）
+
+    # ⚠ 刻意「不掛 volume」—— 限流計數本來就是短命資料（秒級），
+    #   重啟後歸零反而是乾淨的起點。跟 rabbitmq 不同，那個 image 有
+    #   VOLUME 指令會自動長匿名 volume，redis 官方 image 沒有，不用擔心孤兒。
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]    # 回 PONG 就算健康
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    # 不是 Spring 服務，只要記憶體上限那一層
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  gatewayserver —— 對外單一入口
   #
   #  外面只需要開 8072 一個 port，三個服務的 8080 / 8090 / 9000 其實可以全部關掉
@@ -359,6 +391,22 @@ services:
     # ⚠ 唯一的例外是自動路由（discovery.locator.enabled: true）——
     #   那時路由「從 Eureka 名冊生成」，名冊空的就沒有路由，打進來是 404。
     #   本專案設 false，所以不受影響。
+
+    environment:
+      # 限流計數器的位址。直接覆蓋 Spring 的 spring.data.redis.host，
+      # 所以 gatewayserver 的 application.yaml「什麼都不用寫」——
+      # Spring Boot 預設就是 localhost:6379，本機跑剛好對，容器跑由這行蓋掉。
+      # （跟 SPRING_RABBITMQ_HOST 同一種風格；CONFIGSERVER_HOST / EUREKA_URL
+      #   則是另一種：自訂變數，yaml 要配合寫 ${VAR:預設值}。）
+      SPRING_DATA_REDIS_HOST: redis
+
+    # ⚠ redis 必須先就緒 —— 少了它 gateway「還是會啟動成功」，
+    #   但第一個經過限流 filter 的請求就爆 Connection refused。
+    #   那種「啟動正常、一打就死」比啟動失敗難查得多。
+    # ⚠ rabbitmq / configserver / eurekaserver 三項由 microservice-base 帶進來（合併，不是覆蓋）。
+    depends_on:
+      redis:
+        condition: service_healthy
 
     healthcheck:
       # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver。
