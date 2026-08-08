@@ -102,7 +102,13 @@ management:
         #
         # ⚠ 刻意「不加 info / env」—— configserver 沒有 info: 區塊（開了會回空的 {}），
         #   而 env 會把 git.uri、所有服務的設定值全印出來，曝光面太大。
-        include: health,refresh
+        include: health,refresh,prometheus,metrics
+
+  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
+  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
   endpoint:
     # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。

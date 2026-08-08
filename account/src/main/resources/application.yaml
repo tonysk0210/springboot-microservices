@@ -274,9 +274,15 @@ management:
         #    gateway 那組監視 gateway → account，這組監視 account → loan / card。
         #    loan 掛掉時只有這組會出現 ERROR，gateway 那組照樣是 SUCCESS
         #    （因為 account 有正常回應 200）。
-        include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents
+        include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents,prometheus,metrics
 
   # 把斷路器狀態併進 /actuator/health（預設是關的）。
+  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
+  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
   health:
     circuitbreakers:
       enabled: true

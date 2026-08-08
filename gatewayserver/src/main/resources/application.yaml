@@ -92,10 +92,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,env,refresh,busrefresh,gateway,circuitbreakers,circuitbreakerevents
+        include: health,info,env,refresh,busrefresh,gateway,circuitbreakers,circuitbreakerevents,prometheus,metrics
 
   # 把斷路器狀態併進 /actuator/health，跳開的那個會顯示 CIRCUIT_OPEN。
   # ⚠ 預設是關的。
+  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
+  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
   health:
     circuitbreakers:
       enabled: true

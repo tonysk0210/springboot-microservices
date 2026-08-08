@@ -67,7 +67,13 @@ management:
         # ⚠ refresh 對本服務用途很窄 —— 設定幾乎都是啟動時綁死的，
         #   真正改得動的只有 logging.level.*（遠端調 log 除錯）。
         # ⚠ 刻意不加 env（account 有）—— 它會印出所有設定值，這裡沒必要多一個曝光面。
-        include: health,info,refresh,busrefresh
+        include: health,info,refresh,busrefresh,prometheus,metrics
+
+  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
+  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
   endpoint:
     # 不開的話 /actuator/health 只回 {"status":"UP"}，出事時不知道是哪一項壞的。

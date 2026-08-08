@@ -65,6 +65,12 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-monitor</artifactId>
         </dependency>
+        <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
+             Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -161,7 +161,7 @@ management:
         # 🔑 兩個都留著，除錯時可以把問題切一半：busrefresh 打了某個服務沒更新，
         #    就單獨對它打 refresh —— 有更新代表問題在 Bus（沒收到廣播），
         #    沒更新代表問題在 Config Server 那側（通常是忘記 push）。
-        include: health,info,env,refresh,busrefresh,shutdown
+        include: health,info,env,refresh,busrefresh,shutdown,prometheus,metrics
 
   # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
   #     none          端點不存在（連 bean 都不會建）
@@ -182,6 +182,12 @@ management:
   #   所以要手動 docker compose up -d 才會回來。
   #
   # 用法：Invoke-RestMethod http://localhost:8090/actuator/shutdown -Method Post
+  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
+  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
   endpoint:
     shutdown:
       access: unrestricted
