@@ -5,6 +5,7 @@ import com.example.account.dto.CustomerDto;
 import com.example.account.dto.ErrorResponseDto;
 import com.example.account.dto.ResponseDto;
 import com.example.account.service.IAccountService;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.retry.annotation.Retry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -159,9 +160,37 @@ public class AccountController {
 
     // fallback 的回傳型別需相同，並以 Throwable 接收最後的失敗原因。
     public ResponseEntity<String> testRetryFallback(Throwable throwable) {
-        log.info("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
+        log.warn("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
         return ResponseEntity
                 .status(HttpStatus.OK)
                 .body("測試 retry 呼叫 testRetry() 失敗，回傳 fallback 預設值");
     }
+
+    // 套用名為 testRateLimiter 的限流設定；額度用完時直接走 fallback，方法本體不執行。
+    //
+    // ⚠ 這是 Resilience4j 原生的 @RateLimiter，跟 gateway 路由上的 requestRateLimiter 不同：
+    //       gateway 的      靠 KeyResolver 分人（每個 user 各自的額度），計數存 Redis
+    //       這裡的          整個方法一個額度（不分誰打的），計數在記憶體
+    //   所以多台 account 的話，每台各算各的 —— 這是原生版的先天限制。
+    //
+    // ⚠ 跟 @Retry 的差別：@Retry 是「失敗了再試」，@RateLimiter 是「太頻繁就不給打」。
+    //   方法成功與否無關，純粹看呼叫頻率。
+    @RateLimiter(name = "testRateLimiter", fallbackMethod = "testRateLimiterFallback")
+    @GetMapping("/test-rate-limiter")
+    public ResponseEntity<String> testRateLimiter() {
+        log.info("測試 rate limiter 呼叫 testRateLimiter()");
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body("測試 rate limiter 呼叫 testRateLimiter()");
+    }
+
+    // 額度用完時走這裡。Throwable 會是 RequestNotPermitted。
+    // ⚠ 回 429 而不是 200 —— 呼叫端和監控要分得出「被限流」和「正常結果」。
+    public ResponseEntity<String> testRateLimiterFallback(Throwable throwable) {
+        log.warn("測試 rate limiter 額度用完，回傳 fallback 預設值：{}", throwable.toString());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body("請求過於頻繁，請稍後再試");
+    }
+
 }
