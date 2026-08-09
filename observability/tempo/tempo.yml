@@ -1,0 +1,39 @@
+# =============================================================================
+#  Tempo —— 追蹤（trace）的儲存與查詢
+#
+#  🔑 三支柱的收集方式各不相同，這是第三種：
+#      Log      alloy 主動去 Docker 撈      → 服務不知情
+#      Metrics  Prometheus 主動來抓         → 服務被動被打
+#      Traces   服務「主動送」給 Tempo      → 服務要知道 Tempo 在哪
+#
+#  ⚠ 所以四個服務的 application.yaml 都要設 endpoint 指向這裡，
+#    少設一個那個服務的 span 就不會出現，瀑布圖會缺一段。
+# =============================================================================
+
+server:
+  http_listen_port: 3200        # 查詢用（Grafana 的資料源指這裡）
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # 服務把 span 送到這兩個 port 之一。
+        # Spring Boot 的 starter 預設走 http（4318），所以 grpc 其實用不到，
+        # 開著是為了之後換成其他語言/工具時不用改設定。
+        http:
+          endpoint: 0.0.0.0:4318
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local              # 存本機檔案。⚠ 正式環境會用 S3 / GCS。
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal      # 先寫這裡，之後才整併成 blocks
+
+# 保留多久。預設 14 天對本機來說太久，資料會一直長。
+compactor:
+  compaction:
+    block_retention: 24h

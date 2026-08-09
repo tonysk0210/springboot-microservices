@@ -14,7 +14,7 @@ logging:
     #   實際印什麼由下面的 spring.cloud.openfeign...loggerLevel 決定，兩個都要設。
     com.example.account.service.client: DEBUG
   pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,追蹤ID](洋紅) logger名稱(黃) - 訊息
+    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,correlationId,traceId,spanId](洋紅) logger名稱(黃) - 訊息
     #
     # %X{correlationId:-} 撈 MDC 裡的追蹤 ID（CorrelationIdFilter 放進去的），
     # :- 是「撈不到就印空字串」，不會炸。
@@ -23,7 +23,7 @@ logging:
     # ⚠ 這裡是「整條」自訂 console pattern，Spring Boot 專門給追蹤用的
     #   logging.pattern.correlation 對它無效（那個只作用在預設 pattern 上），
     #   所以必須像這樣直接寫進來。
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-}]) %yellow(%logger{15}) - %msg%n"
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
   # ⚠ 這個名字決定去 Config Server 拿哪個檔案：account → configyml/account.yml
@@ -276,13 +276,51 @@ management:
         #    （因為 account 有正常回應 200）。
         include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents,prometheus,metrics
 
-  # 把斷路器狀態併進 /actuator/health（預設是關的）。
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
   metrics:
     tags:
       application: ${spring.application.name}
 
+  # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
+  # 🔑 跟手寫的 correlation-id 的差別：
+  #      correlation-id  整趟只有一個值，看不出誰先誰後、各花多久
+  #      traceId/spanId  每一段一個 span，帶父子關係和起訖時間 → 畫得出瀑布圖
+  # ⚠ 兩套目前「並存」，等 Tempo 跑順、確認瀑布圖沒問題再考慮拆掉手寫那套。
+  tracing:
+    sampling:
+      # 1.0 = 全部採樣。⚠ 正式環境通常 0.1（流量大時 span 量非常可觀）。
+      probability: 1.0
+
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # span 往這裡送。⚠ Boot 4.1 把屬性改名了，舊教材寫的
+          #   management.otlp.tracing.endpoint 雖然還能用，但已是相容用途。
+          # 本機跑 → localhost:4318（Tempo 容器有 ports 映射）
+          # 容器跑 → compose 覆寫成 http://tempo:4318/v1/traces
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+  # ⚠⚠ 這段不能省 —— 少了它每分鐘噴一次 404 錯誤堆疊 ⚠⚠
+  #
+  # spring-boot-starter-opentelemetry 順帶帶進 micrometer-registry-otlp，
+  # 它預設也會把「指標」用 OTLP 送到 localhost:4318/v1/metrics。
+  # 但 Tempo 只收 trace（/v1/traces），收到 /v1/metrics 直接回 404：
+  #     WARN OtlpMeterRegistry - Failed to publish metrics to OTLP receiver
+  #     ...Server responded with HTTP status code 404
+  #
+  # 🔑 而且本來就不需要 —— 指標已經由 micrometer-registry-prometheus 負責
+  #    （Prometheus 主動來抓 /actuator/prometheus）。兩套並存只是重複又出錯。
+  #
+  # ⚠ 課程用 agent 那條路，對應的環境變數是 OTEL_METRICS_EXPORTER: none，
+  #   目的一模一樣。
+  otlp:
+    metrics:
+      export:
+        enabled: false
+
+  # 把斷路器狀態併進 /actuator/health（預設是關的）。
   health:
     circuitbreakers:
       enabled: true

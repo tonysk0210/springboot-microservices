@@ -165,6 +165,17 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
+        <!-- Feign 的 Micrometer 整合 —— 讓 Feign 呼叫也被追蹤。
+             ⚠⚠ 少了它 traceId 會斷在 account ⚠⚠
+             症狀：gateway 和 account 的 traceId 一樣，但 loan / card 各自產生新的：
+                 [gateway,5474edf9...] [account,5474edf9...] [loan,30850e08...] [card,e499d8d4...]
+             原因：Feign 送出的請求沒帶 W3C 的 traceparent 標頭，下游只好開新的 trace。
+             🔑 跟手寫的 correlation-id 對照：那個靠 FeignInterceptorConfig 自己塞標頭，
+                所以四個服務一直都對得上；OTel 這條要這個依賴才會自動塞。 -->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-micrometer</artifactId>
+        </dependency>
         <!-- Spring Cloud Circuit Breaker 的 Resilience4j 實作。
              ⚠ 名字只寫 circuitbreaker，實際上整套都帶進來了 —— 斷路器、逾時、@Retry、@RateLimiter 都不用再加依賴。
              ⚠ 只有 bulkhead（限併發）沒帶，要用得自己加 resilience4j-bulkhead。 -->
@@ -179,6 +190,14 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- OpenTelemetry —— 分散式追蹤（Trace）。
+             一個依賴帶進 micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp，
+             Java 程式碼零改動：HTTP 進出、Feign 呼叫、DB 查詢由框架自動埋點。
+             ⚠ 還要 Tempo 容器接收 span，不然只是不斷嘗試送出然後失敗。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>

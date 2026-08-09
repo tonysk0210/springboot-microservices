@@ -556,6 +556,40 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
+  #  tempo —— 追蹤（trace）的儲存與查詢  http://localhost:3200
+  #
+  #  🔑 三支柱的收集方向，這是第三種：
+  #      Log      alloy 去 Docker 撈        → 服務不知情
+  #      Metrics  Prometheus 來抓           → 服務被動
+  #      Traces   服務「主動送」過來         → 服務要知道 Tempo 在哪
+  #
+  #  ⚠ 所以四個服務的 yaml 都設了 OTLP endpoint。少設一個，那個服務的 span
+  #    就不會出現，瀑布圖會缺一段 —— 而且不會有任何錯誤訊息。
+  # ---------------------------------------------------------------------------
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: tempo-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3200:3200"    # 查詢（Grafana 資料源指這裡）
+      - "4318:4318"    # OTLP / HTTP  ← 服務送 span 用這個
+      - "4317:4317"    # OTLP / gRPC（本專案用不到，開著備用）
+
+    # ⚠ 要 root —— Tempo 的 image 用非 root 跑，但 volume 掛上來時目錄是
+    #   root:root 755，寫不進去會直接啟動失敗。跟 account 的 H2 同一個問題。
+    user: root
+
+    volumes:
+      - "./observability/tempo/tempo.yml:/etc/tempo.yml:ro"
+      - "tempo-data:/var/tempo"
+
+    command: [ "-config.file=/etc/tempo.yml" ]
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  grafana —— 查詢畫面（「螢幕」）  http://localhost:3000
   # ---------------------------------------------------------------------------
   grafana:
@@ -583,6 +617,8 @@ services:
         condition: service_started   # loki 沒有 healthcheck，見上方說明
       prometheus:
         condition: service_started
+      tempo:
+        condition: service_started
 
     extends:
       file: common.yml
@@ -607,6 +643,7 @@ volumes:
   # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
   loki-data:         # log 本體，不留的話容器重建就全沒了
   prometheus-data:   # 指標的歷史資料
+  tempo-data:        # 追蹤資料（tempo.yml 設保留 24h）
   grafana-data:      # 你在畫面上存的儀表板
 
 

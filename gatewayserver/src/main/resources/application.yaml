@@ -61,6 +61,23 @@ spring:
       host: localhost
       port: 6379
 
+  # ⚠⚠ WebFlux 專屬 —— 少了它 log 上的 traceId / spanId 永遠是空的 ⚠⚠
+  #
+  # 症狀：Tempo 裡明明查得到 trace（span 有正常送出），但 console 是
+  #     [gatewayserver,,] c.e.g.f.RequestTraceFilter - 產生新的 correlation-id...
+  #                    ↑ 兩格都空
+  #
+  # 🔑 原因：log pattern 的 %X{traceId} 撈的是 MDC，而 MDC 是 ThreadLocal。
+  #    Reactor 的執行緒會換來換去，預設（limited）只在少數幾個地方同步 MDC。
+  #    改成 auto 會自動在每個 operator 邊界把 Reactor Context 的追蹤資訊
+  #    同步回 MDC，log 才撈得到。
+  #
+  # ⚠ 這是 WebFlux 才有的問題。account / loan / card 是 Servlet（一個請求一條
+  #   執行緒），MDC 天生就在，不需要這行。
+  # ⚠ 代價：每個 operator 邊界多一次 ThreadLocal 存取，有極小的效能開銷。
+  reactor:
+    context-propagation: auto
+
 eureka:
   instance:
     # 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
@@ -94,14 +111,52 @@ management:
       exposure:
         include: health,info,env,refresh,busrefresh,gateway,circuitbreakers,circuitbreakerevents,prometheus,metrics
 
-  # 把斷路器狀態併進 /actuator/health，跳開的那個會顯示 CIRCUIT_OPEN。
-  # ⚠ 預設是關的。
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
   metrics:
     tags:
       application: ${spring.application.name}
 
+  # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
+  # 🔑 跟手寫的 correlation-id 的差別：
+  #      correlation-id  整趟只有一個值，看不出誰先誰後、各花多久
+  #      traceId/spanId  每一段一個 span，帶父子關係和起訖時間 → 畫得出瀑布圖
+  # ⚠ 兩套目前「並存」，等 Tempo 跑順、確認瀑布圖沒問題再考慮拆掉手寫那套。
+  tracing:
+    sampling:
+      # 1.0 = 全部採樣。⚠ 正式環境通常 0.1（流量大時 span 量非常可觀）。
+      probability: 1.0
+
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # span 往這裡送。⚠ Boot 4.1 把屬性改名了，舊教材寫的
+          #   management.otlp.tracing.endpoint 雖然還能用，但已是相容用途。
+          # 本機跑 → localhost:4318（Tempo 容器有 ports 映射）
+          # 容器跑 → compose 覆寫成 http://tempo:4318/v1/traces
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+  # ⚠⚠ 這段不能省 —— 少了它每分鐘噴一次 404 錯誤堆疊 ⚠⚠
+  #
+  # spring-boot-starter-opentelemetry 順帶帶進 micrometer-registry-otlp，
+  # 它預設也會把「指標」用 OTLP 送到 localhost:4318/v1/metrics。
+  # 但 Tempo 只收 trace（/v1/traces），收到 /v1/metrics 直接回 404：
+  #     WARN OtlpMeterRegistry - Failed to publish metrics to OTLP receiver
+  #     ...Server responded with HTTP status code 404
+  #
+  # 🔑 而且本來就不需要 —— 指標已經由 micrometer-registry-prometheus 負責
+  #    （Prometheus 主動來抓 /actuator/prometheus）。兩套並存只是重複又出錯。
+  #
+  # ⚠ 課程用 agent 那條路，對應的環境變數是 OTEL_METRICS_EXPORTER: none，
+  #   目的一模一樣。
+  otlp:
+    metrics:
+      export:
+        enabled: false
+
+  # 把斷路器狀態併進 /actuator/health，跳開的那個會顯示 CIRCUIT_OPEN。
+  # ⚠ 預設是關的。
   health:
     circuitbreakers:
       enabled: true
@@ -128,6 +183,16 @@ logging:
     com:
       example:
         gatewayserver: DEBUG # 設定日誌等級
+  pattern:
+    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,traceId,spanId](洋紅) logger名稱(黃) - 訊息
+    #
+    # ⚠ 比 account / loan / card 少一格 correlationId —— 那格在這裡永遠是空的。
+    #   correlation-id 是我們自己 MDC.put 的，WebFlux 換執行緒就沒了。
+    #   Gateway 的 correlation-id 靠 RequestTraceFilter / ResponseTraceFilter 裡的
+    #   log.debug 直接寫在訊息裡，不走 pattern。
+    # 🔑 traceId / spanId 有值，但「要靠上面的 spring.reactor.context-propagation: auto」——
+    #    框架有辦法把它同步回 MDC，我們手寫的 correlation-id 沒有。差別在這裡。
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 # 斷路器分成兩棵獨立的設定樹，長得像但管的事不同：
 #     circuitbreaker  失敗幾次跳開、跳開多久

@@ -78,6 +78,13 @@ services:
       # 這個開關讓 optional: 失效，連不上就 fail fast。
       SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
 
+      # OpenTelemetry 的 span 往這裡送。application.yaml 寫的是
+      #     ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+      # 本機跑 → localhost（tempo 容器有 ports 映射），容器跑 → 這一行。
+      # ⚠ 只有 account / loan / card / gatewayserver 繼承這層，
+      #   configserver / eurekaserver 沒有 OTel 依賴，設了也沒作用。
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+
       # ── H2 網頁管理介面（開發用）─────────────────────────────────────────
       # 用瀏覽器開 http://localhost:8080/h2-console（loan 8090、card 9000），
       # 連線資訊：

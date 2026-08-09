@@ -22,3 +22,9 @@ datasources:
     type: prometheus
     access: proxy
     url: http://prometheus:9090
+
+  # ── Traces ────────────────────────────────────────────────────────────────
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200      # ⚠ 查詢用 3200，不是服務送 span 的 4318
