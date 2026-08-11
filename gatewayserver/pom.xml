@@ -92,6 +92,33 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
+        <!-- ── OAuth2 Resource Server（三個一組，缺一不可）───────────────────
+             Gateway 在 OAuth2 裡的角色是「資源伺服器」：只負責「驗」token，
+             發 token 是 Keycloak 的事。
+                 ① 地基     filter chain、授權規則
+                 ② 認方式   從 Authorization: Bearer xxx 取出 token
+                 ③ 驗簽章   用 Keycloak 的公鑰檢查 JWT 沒被竄改
+             ⚠ 還要 yaml 的 jwk-set-uri 指向 Keycloak 的公鑰清單，
+               沒設的話所有請求 401，而錯誤訊息不會說是缺設定。 -->
+        <!-- ① Spring Security 本體 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <!-- ② 宣告「我是資源伺服器」，改用 Bearer token 驗身分 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <!-- ③ JWT 的簽章驗證（JOSE = JSON 簽章加密標準，底層是 Nimbus）
+             ⚠ 少了它啟動就 NoClassDefFoundError。
+             ⚠ 不要另外加 jjwt —— 那是「自己發 token」用的，跟 Keycloak 重複。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>
