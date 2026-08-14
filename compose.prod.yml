@@ -1,0 +1,82 @@
+# =============================================================================
+#  「正式環境」的 port 收斂 —— 疊在 compose.yml 上，把不該對外的埠拿掉
+#
+#  用法（在專案根目錄）：
+#      docker compose -f compose.yml -f compose.prod.yml up -d
+#
+#      平常開發照舊，什麼都不用加：
+#      docker compose up -d
+#
+#  ── 解決什麼問題 ───────────────────────────────────────────────────────────
+#  gatewayserver 有 OAuth2 驗證，但那只擋得住「走 8072 進來」的請求。
+#  account / loan / card 自己完全沒有 security 依賴，而它們的 port 是發布出去的：
+#
+#      http://localhost:8072/bank/account/api/fetch-account   ← 要 token ✅
+#      http://localhost:8080/api/fetch-account                ← 不用 token ❌
+#      http://192.168.x.x:8080/api/fetch-account              ← 同網段的人也能打 ❌
+#
+#  把 port 拿掉之後就只剩 8072 一個入口，驗證才真的擋得住。
+#  ⚠ 容器之間完全不受影響 —— gateway 走內部網路用 http://account:8080 找它，
+#    那條路徑跟 ports: 一點關係都沒有。
+#
+#  ── !reset 是什麼 ─────────────────────────────────────────────────────────
+#  🔑 Compose 合併多個檔案時，ports 是「相加」不是「覆蓋」——
+#     正常寫 ports: [] 只會被當成「不加任何東西」，原本的 8080 還在。
+#     !reset 是專門用來「清空」的標籤，這是唯一拿得掉 port 的寫法。
+#  ⚠ 需要 Docker Compose v2.24 以上。
+#
+#  ── 代價 ─────────────────────────────────────────────────────────────────
+#  ⚠ 這些從主機就連不到了（要改從 gateway 走，或臨時切回開發模式）：
+#      http://localhost:8080/swagger-ui/index.html   account
+#      http://localhost:8090/swagger-ui/index.html   loan
+#      http://localhost:9000/swagger-ui/index.html   card
+#      H2 Console 也一樣
+#
+#  ⚠ 用了 -f 之後「每一個」指令都要帶，否則 compose 讀到的是不同的設定：
+#      docker compose -f compose.yml -f compose.prod.yml ps
+#      docker compose -f compose.yml -f compose.prod.yml down
+#    嫌麻煩可以設環境變數，那個視窗之後都自動套用（Windows 用分號分隔）：
+#      $env:COMPOSE_FILE = "compose.yml;compose.prod.yml"
+#
+#  ⚠ profile 照常搭配使用：
+#      docker compose -f compose.yml -f compose.prod.yml --profile auth up -d
+# =============================================================================
+
+services:
+  # 三個業務服務 —— 對外只能走 gateway。
+  account:
+    ports: !reset []
+  loan:
+    ports: !reset []
+  card:
+    ports: !reset []
+
+  # ── 以下預設「不」收斂，需要更嚴格再取消註解 ────────────────────────────────
+  #
+  # ⚠ 收斂前先想清楚各自的代價：
+  #
+  #   eurekaserver  儀表板 http://localhost:8070 看不到了。
+  #                 排查「服務有沒有註冊上」會變得很麻煩。
+  #
+  #   configserver  http://localhost:8071/account/default 看不到了。
+  #                 ⚠⚠ 而且 hookdeck-listen.ps1 會失效 —— 它靠
+  #                    host.docker.internal:8071 把 webhook 轉進來，
+  #                    那條路徑就是走主機發布的這個 port。
+  #
+  #   rabbitmq      管理介面 http://localhost:15672 看不到了。
+  #                 5672 只有容器在用，拿掉沒差。
+  #
+  #   redis         docker exec redis-ms redis-cli 仍然可用（走容器內部），
+  #                 只是不能從主機用 GUI 工具連進去看限流計數器。
+  #
+  # eurekaserver:
+  #   ports: !reset []
+  # configserver:
+  #   ports: !reset []
+  # rabbitmq:
+  #   ports: !reset []
+  # redis:
+  #   ports: !reset []
+
+  # 🔑 gatewayserver 的 8072 刻意「不」收 —— 它是唯一的對外入口，
+  #    收掉的話整套系統就完全沒有進入點了。
