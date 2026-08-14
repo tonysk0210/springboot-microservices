@@ -1,0 +1,40 @@
+# =============================================================================
+#  auth profile —— 只有開啟驗證時才載入
+#
+#  啟用方式：
+#      ./mvnw spring-boot:run -Dspring-boot.run.profiles=auth
+#      容器：在 .env 設 GATEWAY_PROFILE=auth，並用 docker compose --profile auth up -d
+#
+#  🔑 為什麼 jwk-set-uri 要放這裡而不是留在 application.yaml：
+#     這個 property 一旦存在，Boot 就會建出 ReactiveJwtDecoder bean。
+#     放進 profile 檔代表「不驗證」模式下連 decoder 都不會被建立，
+#     profile 是真的把兩種模式切乾淨，不是只有 filter chain 換掉而已。
+#
+#  搭配的 Java 端：
+#      SecurityConfig.java        @Profile("auth")    ← 角色檢查、oauth2ResourceServer
+#      NoAuthSecurityConfig.java  @Profile("!auth")   ← 全部 permitAll
+# =============================================================================
+spring:
+  # ── OAuth2 資源伺服器 —— Gateway 只「驗」token，發 token 是 Keycloak 的事 ──
+  #
+  # jwk-set-uri 是 Keycloak 的「公鑰清單」網址。
+  # 🔑 Spring 在第一次驗 token 時去抓一次公鑰（不是啟動時），之後每個 token
+  #    都用它「離線」驗簽章 —— 不需要每次請求都去問 Keycloak，這是 JWT 最大的優點。
+  #    也因為是延遲抓取，gateway 可以比 Keycloak 早啟動，compose 不需要 depends_on。
+  #
+  # ⚠ 沒設這行的話所有請求 401，而錯誤訊息不會說是缺設定。
+  # ⚠ realms/master 是 Keycloak 的預設 realm。正式環境應該另建一個專用 realm，
+  #   master 是拿來管理 Keycloak 自己的。
+  # ⚠ 位址寫成變數：本機跑 → localhost:7080，容器跑 → compose 覆寫成 keycloak:8080。
+  #
+  # ⚠ 關於 issuer 的常見誤解：
+  #   用 jwk-set-uri 時 Spring「不會」檢查 token 的 iss 欄位，只驗簽章和 exp/nbf，
+  #   所以「用 localhost:7080 拿 token、gateway 用 keycloak:8080 驗」是可以通的。
+  #   但如果哪天改用 issuer-uri（那會連 iss 一起驗），兩邊位址就必須一致 ——
+  #   compose 已經先設好 KC_HOSTNAME 把 issuer 固定成 http://localhost:7080，
+  #   到時候不用回頭補。
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:7080/realms/master/protocol/openid-connect/certs}

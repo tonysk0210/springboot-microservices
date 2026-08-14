@@ -1,16 +1,26 @@
 # =============================================================================
-#  七個容器的編排：改成一行 docker compose up -d
+#  八個容器的編排：改成一行 docker compose up -d
 #
 #    rabbitmq      Bus 的訊息中介，configserver 和四個 Spring 服務都連它
 #    configserver  設定中心，其他五個向它拿設定
 #    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
 #    account / loan / card
+#    redis         Gateway 限流的計數器
 #    gatewayserver 對外單一入口（8072），路由到三個服務
 #
 #  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card / gatewayserver）
 #  由 depends_on + healthcheck 保證。
 #  ⚠ 最後四個是「平行啟動」的，gatewayserver 不等三個服務 —— 原因見它自己那段。
 #  共用設定（JVM 參數、環境變數、記憶體上限、depends_on）抽在 common.yml，用 extends 繼承。
+#
+#  ── 另外兩組「預設不啟動」的，用 profile 開關 ──────────────────────────────
+#    --profile auth           keycloak（授權伺服器，發 token）
+#    --profile observability  loki / alloy / prometheus / tempo / grafana
+#
+#  ⚠ auth 這個名字「同時」是 Spring profile —— 但兩者要分別開：
+#      docker compose --profile auth up -d   起 Keycloak 容器
+#      .env 裡 GATEWAY_PROFILE=auth          gateway 才會真的驗 token
+#    分開的用意：有時只想開 Keycloak 進去改設定，不想讓所有 API 被擋。
 #
 #  ⚠ 執行前專案根目錄要有 .env（裡面要有 ENCRYPT_KEY），沒有的話 compose 會直接失敗。
 #
@@ -353,6 +363,62 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
+  #  keycloak —— 授權伺服器（發 token 的那一方）
+  #
+  #  ⚠ 預設「不啟動」。它和 gatewayserver 的驗證共用同一個名字 auth：
+  #      docker compose up -d                  → 不驗證，Keycloak 不起來
+  #      docker compose --profile auth up -d    → 起 Keycloak
+  #    ⚠⚠ 光起容器還不夠，gateway 那側要另外設 GATEWAY_PROFILE=auth（見 .env）。
+  #        兩者刻意分開：有時候只想開 Keycloak 進去改設定，不想讓 API 全被擋。
+  #
+  #  管理介面 http://localhost:7080 （admin / admin，可用 .env 覆寫）
+  #
+  #  🔑 角色分工：Keycloak 只管「你是誰、有哪些角色」，不知道有哪些 API；
+  #     「這個角色能不能打這支 API」是 gatewayserver 的 SecurityConfig 決定的。
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.1
+    container_name: keycloak-ms
+    profiles: [ "auth" ]
+    ports:
+      # 左邊 7080 是主機端（8080 被 account 佔了），右邊 8080 是容器內的固定埠。
+      # ⚠ 容器之間互連要用 keycloak:8080，不是 localhost:7080。
+      #
+      # ⚠⚠ 前面的 127.0.0.1 不能省 —— 沒寫的話 Docker 綁 0.0.0.0，
+      #     同一個 WiFi / 網段的任何人都連得到這台的 Keycloak 管理介面，
+      #     而帳密是 admin/admin。其他容器不受影響（走的是內部網路，不經過這層映射）。
+      - "127.0.0.1:7080:8080"
+
+    # start-dev = 開發模式：內建 H2、不要求 HTTPS、關掉快取。
+    # ⚠ 正式環境要用 start 並接外部資料庫，start-dev 的資料庫不保證可升級。
+    command: [ "start-dev" ]
+
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+
+      # token 裡的 iss（發行者）固定成這個位址。
+      # ⚠ 目前 gateway 用 jwk-set-uri 驗證，「不會」檢查 iss，所以少了這行也能通。
+      #   但哪天改用 issuer-uri（那會連 iss 一起驗），「用 localhost:7080 拿 token、
+      #   gateway 用 keycloak:8080 驗」就會變成 invalid_token。先設好，到時不用回頭補。
+      KC_HOSTNAME: http://localhost:7080
+
+    volumes:
+      # ⚠⚠ 這行很重要 —— 先前手動 docker run 的容器「沒有」掛 volume，
+      #     realm、client（含 secret）、role、user 全存在容器層，docker rm 就全沒了。
+      #     start-dev 用的 H2 檔案就在 /opt/keycloak/data 底下。
+      - "keycloak-data:/opt/keycloak/data"
+
+    # 刻意不設 healthcheck：Keycloak 26 的健康檢查在另一個管理埠（9000），
+    # 而 image 裡沒有 curl / wget，寫起來要繞一大圈。沒有別的容器 depends_on 它，
+    # 少這一項不影響啟動順序（同 loki 的做法）。
+
+    # 不是 Spring 服務，只要記憶體上限那一層
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  gatewayserver —— 對外單一入口
   #
   #  外面只需要開 8072 一個 port，三個服務的 8080 / 8090 / 9000 其實可以全部關掉
@@ -400,10 +466,27 @@ services:
       #   則是另一種：自訂變數，yaml 要配合寫 ${VAR:預設值}。）
       SPRING_DATA_REDIS_HOST: redis
 
+      # 空 = 不驗證（預設）；填 auth = 開啟 OAuth2 驗證。值改在 .env。
+      # ⚠ 這個跟 --profile auth 是「兩件事」：那個決定 Keycloak 容器起不起來，
+      #   這個決定 gateway 要不要驗 token。要完整驗證流程兩個都要開。
+      SPRING_PROFILES_ACTIVE: ${GATEWAY_PROFILE:-}
+
+      # ⚠ 容器裡要用服務名 keycloak:8080 —— 用 localhost:7080 的話，
+      #   那個 localhost 是 gateway 容器自己，不是主機。
+      # ⚠ 只有 auth profile 會讀這個值（設定在 application-auth.yaml），
+      #   不驗證時它就只是一個沒人用的環境變數。
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/master/protocol/openid-connect/certs
+
     # ⚠ redis 必須先就緒 —— 少了它 gateway「還是會啟動成功」，
     #   但第一個經過限流 filter 的請求就爆 Connection refused。
     #   那種「啟動正常、一打就死」比啟動失敗難查得多。
     # ⚠ rabbitmq / configserver / eurekaserver 三項由 microservice-base 帶進來（合併，不是覆蓋）。
+    #
+    # ⚠ 這裡刻意「不」depends_on keycloak，兩個原因：
+    #   1. keycloak 屬於 auth profile 而 gateway 不屬於，跨 profile 的 depends_on
+    #      會讓「不帶 --profile auth 就啟動」直接失敗。
+    #   2. 本來就不需要。用 jwk-set-uri 時公鑰是「第一次驗 token 才去抓」，
+    #      不是啟動時，所以 gateway 比 Keycloak 早起完全沒問題。
     depends_on:
       redis:
         condition: service_healthy
@@ -640,6 +723,7 @@ volumes:
   loan-data:
   card-data:
   rabbitmq-data:
+  keycloak-data:     # realm / client / role / user（只有 --profile auth 時才會建立）
   # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
   loki-data:         # log 本體，不留的話容器重建就全沒了
   prometheus-data:   # 指標的歷史資料
@@ -689,6 +773,13 @@ volumes:
 #  docker compose exec account sh    進容器
 #  docker compose down               收工（容器 + 網路一起清）
 #
+#  ── 開啟驗證（Keycloak）───────────────────────────────────────────────────
+#  docker compose --profile auth up -d          起 Keycloak（gateway 仍不驗 token）
+#  # 要讓 gateway 真的驗，先在 .env 設 GATEWAY_PROFILE=auth 再 up
+#  docker compose --profile auth down           收工時也要帶 profile，否則收不掉它
+#  ⚠ down 不會刪 volume，Keycloak 裡建的 client / role 會留著。
+#    真要清空：docker compose --profile auth down -v
+#
 #  ── 推到 GitHub Packages（可選）───────────────────────────────────────────
 #  .\push-images-to-ghcr.ps1
 #
@@ -704,6 +795,7 @@ volumes:
 #    http://localhost:8071/account/default         configserver 提供給 account 的設定
 #    http://localhost:8070                         Eureka 儀表板（四個服務都該在上面）
 #    http://localhost:15672                        RabbitMQ 管理介面
+#    http://localhost:7080                         Keycloak（--profile auth，admin/admin）
 #
 #  ⚠ 改了程式碼、重建 image 之後一定要再 up 一次 —— 已在跑的容器不會自動換。
 #    好消息是 Compose 會偵測 image 變了並重建容器，不必像 docker run 先手動 rm -f。

@@ -61,25 +61,14 @@ spring:
       host: localhost
       port: 6379
 
-  # ── OAuth2 資源伺服器 —— Gateway 只「驗」token，發 token 是 Keycloak 的事 ──
+  # ── OAuth2 設定「不在這裡」──────────────────────────────────────────────
+  #  本專案預設「不驗證」，方便直接打 API 測斷路器 / 限流 / 追蹤，
+  #  不用先去 Postman 拿 token。
   #
-  # jwk-set-uri 是 Keycloak 的「公鑰清單」網址。
-  # 🔑 Spring 啟動時抓一次公鑰，之後每個 token 都用它「離線」驗簽章 ——
-  #    不需要每次請求都去問 Keycloak，這是 JWT 最大的優點。
-  #
-  # ⚠ 沒設這行的話所有請求 401，而錯誤訊息不會說是缺設定。
-  # ⚠ realms/master 是 Keycloak 的預設 realm。正式環境應該另建一個專用 realm，
-  #   master 是拿來管理 Keycloak 自己的。
-  # ⚠ 位址寫成變數：本機跑 → localhost，容器跑 → compose 覆寫成 keycloak。
-  #   ⚠⚠ 但容器裡有個陷阱：token 的 iss（發行者）欄位會是「發 token 時用的位址」。
-  #      你用 localhost:7080 拿 token、gateway 用 keycloak:8080 驗，
-  #      issuer 對不上會被拒（invalid_token）。解法是兩邊都用同一個位址，
-  #      或在 Keycloak 設 KC_HOSTNAME 固定 issuer。
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:7080/realms/master/protocol/openid-connect/certs}
+  #  要開驗證：-Dspring-boot.run.profiles=auth
+  #  相關設定全在 application-auth.yaml，Java 端是 SecurityConfig（@Profile("auth")）
+  #  與 NoAuthSecurityConfig（@Profile("!auth")）。
+  # ---------------------------------------------------------------------------
 
   # ⚠⚠ WebFlux 專屬 —— 少了它 log 上的 traceId / spanId 永遠是空的 ⚠⚠
   #

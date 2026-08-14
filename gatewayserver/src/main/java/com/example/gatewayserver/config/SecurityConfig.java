@@ -2,6 +2,7 @@ package com.example.gatewayserver.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
@@ -25,9 +26,18 @@ import reactor.core.publisher.Mono;
  *     .requestMatchers()        →    .pathMatchers()
  * </pre>
  * 兩套不能混用，寫錯會直接找不到類別。
+ * <p>
+ * 🔑 只有帶 {@code auth} profile 時才生效。沒帶的時候整個類別不存在，
+ * 改由 {@link NoAuthSecurityConfig} 提供一條全部放行的 chain。
+ * <pre>
+ *     ./mvnw spring-boot:run                                  → 不驗證
+ *     ./mvnw spring-boot:run -Dspring-boot.run.profiles=auth   → 驗證
+ * </pre>
+ * jwk-set-uri 也跟著搬到 {@code application-auth.yaml}，兩邊一起切換。
  */
 @Configuration
 @EnableWebFluxSecurity
+@Profile("auth")
 public class SecurityConfig {
 
     @Bean
