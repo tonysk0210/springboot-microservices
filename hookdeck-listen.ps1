@@ -40,7 +40,10 @@ param(
     [string] $Source = "configserver",
 
     # 轉發到本機時要補上的路徑。漏了會打到 configserver 根目錄，回 404。
-    [string] $Path = "/monitor"
+    [string] $Path = "/monitor",
+
+    # 容器名稱，沿用 compose 那邊 <服務名>-ms 的慣例
+    [string] $ContainerName = "hookdeck-ms"
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,6 +73,11 @@ Write-Host "轉發到 : http://localhost:$Port$Path"
 Write-Host "⚠ 常駐執行，Ctrl-C 結束（容器會自動刪除）" -ForegroundColor DarkGray
 Write-Host ""
 
+# --name 只是為了好認：不給名字的話 Docker 會隨機取（youthful_lamarr 之類），
+# 想從另一個視窗 docker logs / docker stop 都得先去查名字。
+# ⚠ 搭配 --rm 才安全 —— 固定名字加上「沒刪乾淨的殘骸」會讓下次啟動直接失敗
+#   （name is already in use）。真的遇到就 docker rm hookdeck-ms。
+#
 # ⚠ 四個地方都不能少：
 #   -it                     -t 讓它畫得出儀表板、-i 讓方向鍵有反應。
 #                           少了就只剩一行一行的純文字。
@@ -79,6 +87,7 @@ Write-Host ""
 #                           而 GitHub 還指著舊的 → 事件永遠進不來，且畫面上一切正常。
 #   host.docker.internal    容器裡的 localhost 是容器自己，連不到主機的 8071。
 docker run --rm -it `
+    --name $ContainerName `
     -v "$env:USERPROFILE\.config\hookdeck:/config" `
     hookdeck/hookdeck-cli `
     --hookdeck-config /config/config.toml `
