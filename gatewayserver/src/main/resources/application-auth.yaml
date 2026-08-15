@@ -2,8 +2,9 @@
 #  auth profile —— 只有開啟驗證時才載入
 #
 #  啟用方式：
-#      ./mvnw spring-boot:run -Dspring-boot.run.profiles=auth
-#      容器：在 .env 設 GATEWAY_PROFILE=auth，並用 docker compose --profile auth up -d
+#      IntelliJ → Run Configuration 的 Active profiles 填 auth
+#      mvnw     → ./mvnw spring-boot:run -Dspring-boot.run.profiles=auth
+#      容器     → 一律啟用（compose.yml 的 gatewayserver 寫死 SPRING_PROFILES_ACTIVE: auth）
 #
 #  🔑 為什麼 jwk-set-uri 要放這裡而不是留在 application.yaml：
 #     這個 property 一旦存在，Boot 就會建出 ReactiveJwtDecoder bean。

@@ -38,8 +38,10 @@
 #    嫌麻煩可以設環境變數，那個視窗之後都自動套用（Windows 用分號分隔）：
 #      $env:COMPOSE_FILE = "compose.yml;compose.prod.yml"
 #
-#  ⚠ profile 照常搭配使用：
-#      docker compose -f compose.yml -f compose.prod.yml --profile auth up -d
+#  ⚠ profile 照常搭配使用（目前只剩 observability 一個）：
+#      docker compose -f compose.yml -f compose.prod.yml --profile observability up -d
+#
+#  🔑 驗證不需要任何參數 —— keycloak 跟著 up 一起起來，gatewayserver 一律驗 token。
 # =============================================================================
 
 services:

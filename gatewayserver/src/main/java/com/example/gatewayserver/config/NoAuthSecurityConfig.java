@@ -57,8 +57,9 @@ public class NoAuthSecurityConfig {
         log.warn("""
 
                 ⚠⚠⚠  驗證已關閉（未啟用 auth profile）—— 所有 API 無需 token 即可存取
-                      要開啟：./mvnw spring-boot:run -Dspring-boot.run.profiles=auth
-                      容器版：在 .env 設 GATEWAY_PROFILE=auth，並加 --profile auth
+                      這是「本機開發」的預設模式。要驗證有兩條路：
+                        IntelliJ → Run Configuration 的 Active profiles 填 auth
+                        容器     → docker compose up -d（容器一律驗證，沒有開關）
                 """);
     }
 }
