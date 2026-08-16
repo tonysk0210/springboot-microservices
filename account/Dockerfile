@@ -116,9 +116,13 @@ COPY --from=builder --chown=app:app /build/extracted/application/ ./
 EXPOSE 8080
 
 # 預設值，可被 compose 的 environment: 或 docker run -e 覆蓋。
-# 用記憶體資料庫是刻意的 —— 容器裡的檔案關掉就沒了，用 mem 語意才清楚，
-# 不會讓人誤以為資料有存起來、重建容器後才發現全消失。
-ENV SPRING_DATASOURCE_URL=jdbc:h2:mem:accountdb
+#
+# ⚠ 寫「容器內的」位址而不是 localhost —— 容器裡的 localhost 是它自己。
+#   application.yaml 的預設值是 localhost:3306（給 IntelliJ 用的），
+#   image 這一層改成服務名，即使不經 compose、只用
+#       docker run --network springboot-microservices_default ...
+#   也連得上同一台 MySQL。
+ENV SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/accountdb
 
 # 純 metadata。docker inspect、資安掃描工具（Trivy/Grype）、SBOM 工具會讀。
 # ⚠ 刻意放最後：LABEL 會產生一個 0 B 的層，放前面會讓後面所有層的快取失效。

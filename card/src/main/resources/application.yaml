@@ -53,17 +53,13 @@ spring:
     password: guest
 
   datasource:
-    # 本機開發用 H2 檔案模式（~ 是使用者家目錄，不受 JVM 工作目錄影響）。
-    # ⚠ 容器裡永遠用不到這個值 —— image 內建的 ENV 已經把它蓋成 jdbc:h2:mem:carddb
-    #   （設定在 pom.xml 的 Jib <environment> 區塊）。
-    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:~/h2db/carddb;AUTO_SERVER=true}
-    driverClassName: org.h2.Driver
-    username: sa
-    password: ''
-
-  h2:
-    console:
-      enabled: true        # /h2-console 可用
+    # 🔑 IntelliJ 和容器連的是「同一台 MySQL 的同一個 database」，只是路不同：
+    #        IntelliJ  localhost:3306   ← 走 compose 發布出來的 port
+    #        容器      mysql:3306       ← 走 compose 內部網路（服務名 = DNS 名）
+    # ⚠ 刻意不寫 driverClassName —— Spring Boot 從 jdbc:mysql:// 自己推斷。
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/carddb}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:root}
 
   jpa:
     # ⚠ 不要寫死 database-platform（例如 H2Dialect）—— Hibernate 會依實際連線

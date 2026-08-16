@@ -155,21 +155,17 @@ spring:
     password: guest
 
   datasource:
-    # 本機開發用 H2 檔案模式（~ 是使用者家目錄，不受 JVM 工作目錄影響）。
-    # ⚠ 容器裡用不到這個預設值，但被蓋成什麼要看兩層：
-    #     Dockerfile 的 ENV  → jdbc:h2:mem:accountdb（記憶體）
-    #     compose.yml 又蓋掉 → jdbc:h2:file:/data/accountdb + volume account-data
-    #   最終生效的是 compose 那個，所以「容器也是檔案模式，重啟資料留著」。
-    #   ⚠ 只看 Dockerfile 會誤以為是記憶體模式 —— 加欄位時就會踩到
-    #     Schema validation: missing column（詳見 sql/schema.sql 的說明）。
-    url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:~/h2db/accountdb;AUTO_SERVER=true}
-    driverClassName: org.h2.Driver
-    username: sa
-    password: ''
-
-  h2:
-    console:
-      enabled: true        # /h2-console 可用
+    # 🔑 IntelliJ 和容器連的是「同一台 MySQL 的同一個 database」——
+    #    只有走進去的路不同：
+    #        IntelliJ  localhost:3306   ← 走 compose 發布出來的 port
+    #        容器      mysql:3306       ← 走 compose 內部網路（服務名 = DNS 名）
+    #    所以用 IntelliJ 建的資料，切成容器照樣查得到。
+    #
+    # ⚠ 刻意「不寫」driverClassName —— Spring Boot 從 jdbc:mysql:// 自己推斷。
+    #   寫死的話換資料庫時很容易改漏（這正是換掉 H2 時踩到的第一個坑）。
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/accountdb}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:root}
 
   jpa:
     # ⚠ 不要寫死 database-platform（例如 H2Dialect）—— Hibernate 會依實際連線

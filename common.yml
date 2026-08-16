@@ -85,27 +85,20 @@ services:
       #   configserver / eurekaserver 沒有 OTel 依賴，設了也沒作用。
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
 
-      # ── H2 網頁管理介面（開發用）─────────────────────────────────────────
-      # 用瀏覽器開 http://localhost:8080/h2-console（loan 8090、card 9000），
-      # 連線資訊：
-      #     JDBC URL  jdbc:h2:file:/data/accountdb   （loandb / carddb）
-      #     User      SA
-      #     Password  留空
+      # ── 資料庫帳密（三個服務共用同一台 MySQL）─────────────────────────────
+      # application.yaml 寫的是 ${SPRING_DATASOURCE_USERNAME:root}，
+      # 本機跑 → 預設 root/root，容器跑 → 這兩行（值一樣，但看得見來源）。
       #
-      # 🔑 為什麼要在容器裡開這個：H2 是檔案模式，檔案在 volume 裡（WSL2），
-      #    Windows 上的 DBeaver 看不到那個路徑。Console 跑在容器內部，
-      #    所以它看得到 /data —— 這是唯一能「邊跑邊看資料」的方式。
+      # ⚠ 連線字串「不在這裡」—— 每個服務的 database 不同（accountdb / loandb /
+      #   carddb），所以 SPRING_DATASOURCE_URL 寫在 compose.yml 各自的區塊。
       #
-      # ⚠ 兩個都要設，只設 ENABLED 會被擋掉，畫面出現：
-      #       Sorry, remote connections ('webAllowOthers') are disabled on this server.
-      #   原因：H2 Console 只接受「本機」連線，而你的瀏覽器在 Windows，
-      #   請求經 Docker 轉發後，容器看到的來源是閘道 IP（172.18.0.1）不是 127.0.0.1。
-      #   在 IntelliJ 跑時不用設第二個，因為那時瀏覽器和程式真的在同一台機器上。
+      # ⚠ gatewayserver 也繼承這一層，會拿到這兩個變數但完全用不到（它沒有資料庫）。
+      #   跟它拿到 H2 設定時是同樣的情況，留著比多開一層 base 划算。
       #
-      # ⚠ 這兩行刻意放 compose 不放 application.yaml —— WEB_ALLOW_OTHERS 等於
-      #   把沒有密碼的資料庫對外開放，只該存在於本機開發的 compose。
-      SPRING_H2_CONSOLE_ENABLED: "true"
-      SPRING_H2_CONSOLE_SETTINGS_WEB_ALLOW_OTHERS: "true"
+      # ⚠ 正式環境不該用 root，也不該三個服務共用同一組帳密 ——
+      #   應該每個 database 一個專用帳號，只授權它自己那個 schema。
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
 
     # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
     #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
@@ -114,6 +107,9 @@ services:
     # 🔑 eurekaserver 那項是「軟依賴硬寫」：Eureka 連不上服務照樣能啟動
     #    （只是背景每 30 秒重試註冊）。寫出來的好處是啟動後就是可用狀態，
     #    不會有「服務起來了但彼此還找不到對方」的空窗期。
+    #
+    # ⚠ mysql 刻意「不放這裡」—— gatewayserver 也繼承這一層，但它沒有資料庫，
+    #   讓它白等 MySQL 沒有意義。改由 account / loan / card 各自宣告。
     depends_on:
       rabbitmq:
         condition: service_healthy

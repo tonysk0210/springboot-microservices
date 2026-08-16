@@ -1,7 +1,8 @@
 # =============================================================================
-#  十個容器的編排：改成一行 docker compose up -d
+#  十一個容器的編排：改成一行 docker compose up -d
 #
 #    rabbitmq      訊息中介。兩種用途：Bus 廣播設定刷新 + account↔messageservice 的通知
+#    mysql         account / loan / card 共用的資料庫（一個容器、三個 database）
 #    configserver  設定中心，其他五個向它拿設定
 #    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
 #    account / loan / card
@@ -79,6 +80,57 @@ services:
       retries: 10
       start_period: 30s     # 前 30 秒失敗不算數（RabbitMQ 啟動要時間）
     # 它不是 Spring 服務，只需要共用的資源限制那一層
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  mysql —— account / loan / card 共用的資料庫（一個容器、三個 database）
+  #
+  #  🔑 這裡是「IntelliJ 和容器看到同一份資料」的關鍵：
+  #        IntelliJ 跑的服務  →  localhost:3306   （靠下面的 ports 映射）
+  #        容器跑的服務      →  mysql:3306       （compose 內部網路）
+  #     兩條路指向同一台 MySQL，所以用哪邊建的資料另一邊都查得到。
+  #     換掉 H2 的主因就是這個 —— H2 檔案模式下本機和容器是兩份完全不同的資料。
+  #
+  #  ⚠ 一個容器三個 database，不是三個容器。維持「每個服務一個資料庫」的原則，
+  #    但只吃一份容器的記憶體。三個服務的表名雖然不衝突，仍刻意分開 schema。
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: mysql-ms
+    ports:
+      # ⚠ 這行不能省 —— 少了它 IntelliJ 跑的服務連不到，就失去共用的意義了。
+      - "3306:3306"
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+
+    # ⚠ 預設的 InnoDB buffer pool 是 128M，加上其他開銷在 700m 上限下很緊，
+    #   容易被 Linux OOM killer 砍掉（docker ps -a 顯示 exit 137，log 沒線索）。
+    #   真的不夠就把下面 extends 的 resource-limits 拿掉、單獨寫 memory: 1g。
+    command: [ "--innodb-buffer-pool-size=64M" ]
+
+    volumes:
+      - "mysql-data:/var/lib/mysql"
+      # 建立三個 database 的腳本。
+      # ⚠ MySQL image 「只在資料目錄是空的時候」跑這個資料夾裡的檔案 ——
+      #   也就是第一次啟動、或 mysql-data volume 被刪掉之後。
+      #   之後改腳本不會有任何效果，新加的 database 一直不出現。
+      - "./mysql/init:/docker-entrypoint-initdb.d:ro"
+
+    healthcheck:
+      # mysqladmin 是 image 內建的，不用自己裝。
+      # ⚠ 用 127.0.0.1 不用 localhost —— MySQL 對 localhost 會走 unix socket，
+      #   那條路徑在服務還沒完全就緒時的行為跟 TCP 不一樣。
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # ⚠ 第一次啟動要初始化資料目錄 + 跑 initdb，比其他容器慢很多。
+      start_period: 40s
+
+    # 不是 Spring 服務，只要記憶體上限那一層
     extends:
       file: common.yml
       service: resource-limits
@@ -211,42 +263,22 @@ services:
       file: common.yml
       service: microservice-base
 
-    # ── H2 資料持久化（三個服務寫法相同，只有名字不同）──────────────────────
+    # ── 資料庫（共用的 mysql 容器）──────────────────────────────────────────
     #
-    # ⚠ 三件事缺一不可，少任何一個都不會成功：
-    #     ① user: root      不然寫不進去（見下方說明）
-    #     ② volumes:        提供一塊容器外的空間
-    #     ③ 連線字串 mem→file  叫 H2 寫到那塊空間
+    # ⚠ 這裡只覆寫 URL —— 帳密由 common.yml 的 microservice-base 帶進來，
+    #   因為三個服務的帳密相同、但 database 各自不同。
     #
-    # ① 為什麼要 root：
-    #    image 裡沒有 /data 這個目錄，Docker 就當場建一個，擁有者是 root:root 755。
-    #    而三個 image 都用非 root 跑（account=app(100)、loan=cnb(1002)、card=nobody(65534)），
-    #    在「其他人」那格只有 r-x → touch 會 Permission denied。
-    #    而且程式自己修不了 —— chown / chmod 都只有 root 能做。
-    #    ⚠ 正式環境不該這樣，應該在 Dockerfile 裡先 mkdir + chown（趁還是 root 時），
-    #      或用一個 init 容器把 volume chown 好。這裡圖方便。
-    #    ⚠ 副作用：volume 裡的檔案會變成 root 的。以後想改回非 root 要先進去 chown。
-    #
-    # ② 左邊是 volume 名字（不是路徑），右邊是容器內路徑，格式跟 ports: 一樣。
-    #    名字要在檔案最下面的 volumes: 區塊宣告，否則 compose 直接拒絕啟動。
-    #
-    # ③ compose 的 environment: 優先權高於 image 內建的 ENV，所以不用重建 image。
-    #    AUTO_SERVER=true 允許多個程序開同一個檔案 —— 容器裡用不到，
-    #    留著是為了讓 Windows 上的 DBeaver 之後能連進來看。
-    #
-    # 資料實際位置（WSL2 裡的 Linux 路徑，檔案總管打不開）：
-    #     /var/lib/docker/volumes/springboot-microservices_account-data/_data
-    # 想看內容：
-    #     docker run --rm -v springboot-microservices_account-data:/data alpine ls -la /data
-    #
-    # ⚠ 三個服務各用各的 volume，不要共用 —— 共不共用只看名字有沒有一樣。
-    #   H2 檔案模式的鎖跨容器行為不可靠，共用一定出事。
-    # ⚠ docker compose down 會留著 volume（資料還在），down -v 才會真的刪掉。
-    user: root
-    volumes:
-      - "account-data:/data"
+    # 🔑 mysql 是「服務名 = DNS 名」。IntelliJ 那側走 localhost:3306
+    #    （application.yaml 的預設值），兩條路指向同一台 MySQL。
     environment:
-      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
+
+    # ⚠ 硬依賴：連不上資料庫的話 Hibernate 建不出 EntityManagerFactory，
+    #   服務直接啟動失敗（不是重試，是掛掉）。
+    #   而 MySQL 第一次啟動要初始化資料目錄 + 建三個 database，比誰都慢。
+    depends_on:
+      mysql:
+        condition: service_healthy
 
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
@@ -283,12 +315,12 @@ services:
       #   ⚠ 這只改「計算假設」，不限制實際執行緒數。
       BPL_JVM_THREAD_COUNT: 50
 
-      # H2 改成檔案模式，寫進下面的 volume。完整說明見 account 那段。
-      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/loandb;AUTO_SERVER=true"
+      # 共用的 mysql 容器，各自的 database。完整說明見 account 那段。
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/loandb"
 
-    user: root
-    volumes:
-      - "loan-data:/data"
+    depends_on:
+      mysql:
+        condition: service_healthy
 
     # ⚠ loan 的 healthcheck 寫法跟 account / card 不一樣，因為它是 Buildpacks 產的。
     #   Paketo 預設的 run image（ubuntu-noble-run-tiny）走 distroless 路線，
@@ -325,12 +357,13 @@ services:
       file: common.yml
       service: microservice-base
 
-    # H2 改成檔案模式，寫進下面的 volume。完整說明見 account 那段。
-    user: root
-    volumes:
-      - "card-data:/data"
+    # 共用的 mysql 容器，各自的 database。完整說明見 account 那段。
     environment:
-      SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/carddb;AUTO_SERVER=true"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/carddb"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
 
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
@@ -484,9 +517,11 @@ services:
     # 跟三個服務用同一層 —— 它同樣要向 Config Server 拿設定、要註冊到 Eureka、
     # 要連 RabbitMQ 收 Bus 廣播。
     #
-    # ⚠ 這層會順帶帶進兩個 H2 Console 的環境變數。gatewayserver 沒有資料庫，
+    # ⚠ 這層會順帶帶進資料庫的帳密。gatewayserver 沒有資料庫，
     #   那兩個設定不會有任何作用（Spring 對不認識的 property 直接忽略），
     #   留著只是為了不用再多開一層 base。
+    #   🔑 但 depends_on mysql 刻意「不」放在那一層 —— 那會讓 gateway 白等
+    #      資料庫就緒，而它根本不需要。
     extends:
       file: common.yml
       service: microservice-base
@@ -755,16 +790,14 @@ services:
 #  named volume 宣告
 #
 #  ⚠ 這一段跟 services: 同一層（最外層，不縮排）。
-#    上面服務寫了 "account-data:/data" 卻沒在這裡宣告的話，compose 直接拒絕：
-#        service "account" refers to undefined volume account-data
+#    上面服務寫了 "mysql-data:/var/lib/mysql" 卻沒在這裡宣告的話，compose 直接拒絕：
+#        service "mysql" refers to undefined volume mysql-data
 #
 #  冒號後面留空 = 用預設設定（driver: local），位置交給 Docker 決定。
-#  compose 會自動加上專案名前綴，實際名稱是 springboot-microservices_account-data。
+#  compose 會自動加上專案名前綴，實際名稱是 springboot-microservices_mysql-data。
 # =============================================================================
 volumes:
-  account-data:
-  loan-data:
-  card-data:
+  mysql-data:        # account / loan / card 三個 database 都在這一塊裡
   rabbitmq-data:
   keycloak-data:     # realm / client / role / user —— 沒有它，容器一重建設定就全沒
   # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
@@ -833,6 +866,15 @@ volumes:
 #    account / loan / card 的 port 不對外，只剩 8072 一個入口。
 #  ⚠ 之後每個指令都要帶同樣的 -f，或設 $env:COMPOSE_FILE = "compose.yml;compose.prod.yml"
 #
+#  ── 資料庫 ────────────────────────────────────────────────────────────────
+#  docker exec mysql-ms mysql -uroot -proot -e "SHOW DATABASES;"
+#  docker exec mysql-ms mysql -uroot -proot accountdb -e "SELECT * FROM accounts;"
+#
+#  ⚠ 改了表結構（schema.sql）之後要重建資料庫，因為 CREATE TABLE IF NOT EXISTS
+#    對既有的表沒有作用，ddl-auto: validate 會讓服務啟動失敗：
+#      只清一個  docker exec mysql-ms mysql -uroot -proot -e "DROP DATABASE accountdb; CREATE DATABASE accountdb;"
+#      全部重來  docker compose rm -sf mysql; docker volume rm springboot-microservices_mysql-data; docker compose up -d mysql
+#
 #  ── 推到 GitHub Packages（可選）───────────────────────────────────────────
 #  .\push-images-to-ghcr.ps1
 #
@@ -845,6 +887,8 @@ volumes:
 #                                                  ↑ 正式入口，走 Gateway
 #    http://localhost:8072/actuator/gateway/routes 目前生效的路由表
 #    http://localhost:8080/swagger-ui/index.html   account（8090 loan、9000 card）
+#    localhost:3306                                MySQL（root/root，DBeaver 或
+#                                                  IntelliJ Database 直接連）
 #    http://localhost:8071/account/default         configserver 提供給 account 的設定
 #    http://localhost:8070                         Eureka 儀表板（四個服務都該在上面）
 #    http://localhost:15672                        RabbitMQ 管理介面
@@ -856,122 +900,41 @@ volumes:
 
 
 # =============================================================================
-#  進階：之後想加的東西（現在都不需要）
+#  資料庫的演進紀錄（這一段是「為什麼變成現在這樣」，不是待辦）
 #
-#  ── 1. 讓 H2 資料存得住 ──────────────────────────────────────────────────
+#  ── 曾經：H2 記憶體模式 ──────────────────────────────────────────────────
+#  三個 image 在建置階段把資料庫設成 jdbc:h2:mem:xxx，容器一關資料就蒸發。
 #
-#  現在的問題：容器一刪，資料就沒了。
-#  原因：三個 image 在建置階段就把資料庫設成「記憶體模式」了
-#        jdbc:h2:mem:accountdb
-#                ↑ mem = memory，資料存在 RAM，容器一關就蒸發
-#        （account 用 Dockerfile 的 ENV、card 用 Jib 的 <environment>、
-#          loan 用 Buildpacks 的 BPE_DEFAULT_*）
+#  ── 然後：H2 檔案模式 + 三個 volume ──────────────────────────────────────
+#  改成 jdbc:h2:file:/data/xxx 並各掛一塊 volume，資料留得住了。
+#  但暴露出三個持續踩到的問題：
+#      ① 本機和容器是「兩份不同的資料」
+#         IntelliJ 跑 → ~/h2db/xxx（Windows 家目錄）
+#         容器跑     → volume 裡（WSL2）
+#         用 IntelliJ 建的帳戶，切成容器就查不到。
+#      ② schema.sql 是 CREATE TABLE IF NOT EXISTS，加新欄位對既有資料庫無效，
+#         ddl-auto: validate 直接讓服務啟動失敗，只能刪檔重建。
+#      ③ 檔案在 WSL2 的 volume 裡，Windows 的 DBeaver 看不到，
+#         只能靠容器內的 h2-console 看資料（還要額外開 WEB_ALLOW_OTHERS）。
+#      ⚠ 還要 user: root，因為非 root 的 image 寫不進 Docker 新建的 /data。
 #
-#  ---------------------------------------------------------------------------
-#  修法：兩件事「必須一起做」
+#  ── 現在：一個 mysql 容器、三個 database ─────────────────────────────────
+#  上面三個問題一次解決：
+#      ① 兩邊連同一台 —— IntelliJ 走 localhost:3306、容器走 mysql:3306
+#      ② 改結構就 docker volume rm mysql-data 重建（見 account/sql/schema.sql）
+#      ③ DBeaver / IntelliJ Database 直接連 localhost:3306
 #
-#    ① 掛一塊「容器外」的空間      →  volumes:
-#    ② 叫資料庫寫到那塊空間        →  把連線字串的 mem 改成 file:/data/...
+#  🔑 Java 程式碼一行都沒改 —— 因為 application.yaml 從一開始就把 URL 寫成
+#     ${SPRING_DATASOURCE_URL:...}，而且刻意沒寫死 database-platform，
+#     Hibernate 會自己從連線挑方言。這是當初留的伏筆，這次真的用上了。
+#     ⚠ 但 driverClassName / username / password 當初「沒有」做成佔位符，
+#       那三行是這次唯一被卡住的地方 —— 現在 driverClassName 直接刪掉
+#       （Boot 從 URL 推斷），帳密改成 ${VAR:預設}。
 #
-#    只做①：空間有了，但資料庫還是寫在記憶體      → 沒用
-#    只做②：資料庫寫到 /data，但那目錄在容器裡    → 容器刪掉照樣沒了
-#
-#    比喻：① 是插上外接硬碟，② 是把存檔位置改成那顆硬碟。
-#         只插硬碟不改存檔位置，檔案還是存在桌面（= 容器裡）。
-#
-#  ---------------------------------------------------------------------------
-#  掛載的格式跟 ports: 一樣，左邊是容器外、右邊是容器內：
-#
-#      volumes:
-#        - "account-data : /data"
-#            └ 容器外 ┘   └ 容器內 ┘
-#
-#      ports:
-#        - "8080 : 8080"
-#           └主機┘ └容器┘
-#
-#  ⚠ 左右是「同一塊空間的兩個視角」，不是兩個地方。
-#    容器裡的 H2 只認得 /data，完全不知道外面叫什麼名字、實際存在哪。
-#
-#  ---------------------------------------------------------------------------
-#  兩種掛法：named volume vs bind mount
-#
-#  【A】named volume —— 左邊寫「名字」，位置交給 Docker 決定
-#
-#      services:
-#        account:
-#          volumes:
-#            - "account-data:/data"
-#          environment:
-#            SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
-#
-#      volumes:                    # ← 最外層，跟 services: 同一層
-#        account-data:             #   冒號後面空的 = 用預設設定
-#
-#      ⚠ 一定要在最外層宣告，否則 compose 直接拒絕：
-#          service "account" refers to undefined volume account-data
-#
-#      實際位置（Linux 路徑，在 WSL2 虛擬機裡，檔案總管打不開）：
-#          /var/lib/docker/volumes/springboot-microservices_account-data/_data
-#                                  └ compose 自動加的專案名前綴 ─┘
-#      查法：docker volume inspect springboot-microservices_account-data
-#      看裡面的檔案（開個臨時容器掛上去）：
-#          docker run --rm -v springboot-microservices_account-data:/data alpine ls -la /data
-#
-#  【B】bind mount —— 左邊寫「Windows 的真實路徑」
-#
-#      services:
-#        account:
-#          volumes:
-#            - "D:/docker-data/account:/data"    # ⚠ 正斜線，反斜線會被 YAML 吃掉
-#          environment:
-#            SPRING_DATASOURCE_URL: "jdbc:h2:file:/data/accountdb;AUTO_SERVER=true"
-#
-#      ⚠ 不需要最外層的 volumes: 宣告 —— 它不是 Docker 管理的物件，就是一個路徑。
-#      實際位置：D:\docker-data\account\accountdb.mv.db  ← 檔案總管直接看得到
-#
-#  【怎麼選】
-#      判斷方式：冒號左邊有沒有路徑符號（/ 或 :）—— 有就是 bind mount，沒有就是名字
-#
-#                          named volume        bind mount
-#      檔案在哪             WSL2 裡，Docker 管   你的 D 槽
-#      檔案總管看得到        ❌                  ✅
-#      DBeaver 開 .mv.db   ❌                  ✅
-#      IO 效能              較好                 較差（跨 Windows/WSL2 檔案系統）
-#      權限問題             較少                 較容易出現
-#      適合                 只想讓資料留著        想直接翻檔案、用工具開
-#
-#  ---------------------------------------------------------------------------
-#  ⚠ 其他要注意的
-#
-#  compose 的 environment: 優先權高於 image 內建的 ENV，所以改連線字串「不用重建 image」。
-#
-#  三個服務各給各的 volume，不要共用 —— 共不共用只看「名字有沒有一樣」，
-#  三行都寫 shared:/data 就變成共用。微服務本來就該各自擁有自己的資料庫，
-#  而且 H2 檔案模式的 lock 機制跨容器行為不可靠。
-#
-#  account 容器用非 root 的 app 使用者跑（見 Dockerfile 的 USER app），
-#  掛 volume 後若出現 Permission denied，要另外處理目錄權限。
-#
-#  docker compose down     容器刪掉，volume 留著 → 下次 up 資料還在
-#  docker compose down -v  連 volume 一起刪 → 資料真的消失
-#
-#  ── 2. 換掉 H2 ───────────────────────────────────────────────────────────
-#  application.yaml 已預留 ${SPRING_DATASOURCE_URL:...} 且沒寫死方言，
-#  所以加一個 db 服務再覆寫環境變數就能換 Postgres，Java 程式碼一行都不用改：
-#
-#    accountdb:
-#      image: postgres:17-alpine
-#      environment:
-#        POSTGRES_DB: accountdb
-#        POSTGRES_USER: app
-#        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
-#
-#    account:
-#      environment:
-#        SPRING_DATASOURCE_URL: "jdbc:postgresql://accountdb:5432/accountdb"
-#
-#  連線字串裡的 accountdb 就是「服務名 = DNS 名」。
-#  ⚠ 還要加 Postgres 的 JDBC driver 依賴，並把 schema.sql 改成 Postgres 語法
-#    （現在用的反引號是 H2/MySQL 風格）。
+#  ── 還沒做的 ─────────────────────────────────────────────────────────────
+#  ⚠ 用 root 連資料庫，三個服務共用同一組帳密。正式環境該每個 database
+#    一個專用帳號，只授權它自己那個 schema。
+#  ⚠ 改表結構仍然要「刪掉重建」。欄位一多就該換 Flyway 或 Liquibase ——
+#    它們會記錄哪些遷移跑過了，不用每次清空資料。
+#  ⚠ Keycloak 仍然用它自己的 H2（start-dev），沒有跟著搬過來。
 # =============================================================================
