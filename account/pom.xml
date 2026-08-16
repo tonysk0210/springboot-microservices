@@ -189,7 +189,6 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
-
         <!-- OpenTelemetry —— 分散式追蹤（Trace）。
              一個依賴帶進 micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp，
              Java 程式碼零改動：HTTP 進出、Feign 呼叫、DB 查詢由框架自動埋點。

@@ -1,6 +1,7 @@
 package com.example.account.service;
 
 import com.example.account.dto.AccountDto;
+import com.example.account.dto.AccountMsgDto;
 import com.example.account.dto.CustomerDto;
 import com.example.account.entity.Account;
 import com.example.account.entity.Customer;
@@ -11,11 +12,14 @@ import com.example.account.mapper.CustomerMapper;
 import com.example.account.repository.AccountRepo;
 import com.example.account.repository.CustomerRepo;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Random;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)                                       // ← 預設 readOnly，讀取方法自動繼承
@@ -23,6 +27,14 @@ public class AccountServiceImpl implements IAccountService {
 
     private final AccountRepo accountRepo;
     private final CustomerRepo customerRepo;
+
+    /**
+     * 主動送訊息到 RabbitMQ 用的。
+     * <p>
+     * 🔑 跟 messageservice 那種「宣告 Function bean 等訊息上門」相反 ——
+     * 這裡是我們自己決定何時要送，所以用 StreamBridge。
+     */
+    private final StreamBridge streamBridge;
 
     @Transactional
     @Override
@@ -39,7 +51,9 @@ public class AccountServiceImpl implements IAccountService {
         // 3. 將 Customer 物件保存到資料庫
         Customer savedCustomer = customerRepo.save(customer);
         // 4. 創建新的帳戶並保存
-        accountRepo.save(createNewAccount(savedCustomer));
+        Account savedAccount = accountRepo.save(createNewAccount(savedCustomer));
+        // 5. 通知 messageservice 去寄信 / 發簡訊（非同步，不等它做完）
+        sendCommunication(savedAccount, savedCustomer);
     }
 
     @Transactional(readOnly = true)
@@ -115,6 +129,35 @@ public class AccountServiceImpl implements IAccountService {
     // ///////////////
     // helper method
     // ///////////////
+
+    /**
+     * 丟一則「請通知這位客戶」的訊息到 RabbitMQ。
+     * <p>
+     * ⚠ 第一個參數必須跟 application.yaml 的 binding 名稱
+     * {@code spring.cloud.stream.bindings.accountSendCommunication-out-0} 完全一致。
+     * 打錯字「不會報錯」—— StreamBridge 會臨時建一個同名的 binding，
+     * 訊息就被送到一個沒人監聽的 exchange，安靜地消失。
+     * <p>
+     * ⚠ 這裡是在交易「還沒 commit」時就送出去的。如果後續發生例外導致
+     * rollback，訊息已經飛出去了，會通知一個實際上不存在的帳戶。
+     * 正式系統要嘛用 {@code @TransactionalEventListener(AFTER_COMMIT)}，
+     * 要嘛把訊息先寫進同一個交易的資料表再由排程送出（outbox pattern）。
+     * 本專案是學習用途，維持最簡單的寫法。
+     * <p>
+     * ⚠ 回傳的 boolean 只代表「有沒有交給 RabbitMQ」，不代表對方處理成功 ——
+     * 那正是非同步的本質：送出去就不管了。
+     */
+    private void sendCommunication(Account account, Customer customer) {
+        AccountMsgDto msg = new AccountMsgDto(
+                account.getAccountNumber(), customer.getName(),
+                customer.getEmail(), customer.getMobileNumber());
+
+        log.info("Account 送出通知訊息到 RabbitMQ：{}", msg);
+        // 送訊息到 RabbitMQ，交給 messageservice 去寄信 / 發簡訊
+        boolean sent = streamBridge.send("accountSendCommunication-out-0", msg); // ← 這個名稱要跟 Account application.yaml 的 binding 名稱完全一致
+        log.info("Account 通知訊息是否送達 RabbitMQ broker：{}", sent);
+    }
+
     private Account createNewAccount(Customer customer) {
         Account newAccount = new Account();
         newAccount.setCustomerId(customer.getCustomerId());

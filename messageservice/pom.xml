@@ -35,9 +35,20 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
+        <!-- 把 Function bean 額外開成 HTTP 端點：POST /email 帶 JSON 就能直接觸發，
+             不用先架好 RabbitMQ 也能測函式邏輯（路徑 = bean 名稱 = 方法名）。
+             ⚠ 這是「開發便利」用的，正式流量走訊息佇列不走 HTTP。
+             ⚠ 它會帶進 spring-boot-starter-web → 內嵌 Tomcat，多開一個 port。
+               本服務本質上是訊息消費者，不需要對外提供 API，
+               哪天覺得多餘可以拿掉，兩個函式照樣能從佇列被觸發。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-function-context</artifactId>
+            <artifactId>spring-cloud-starter-function-web</artifactId>
+        </dependency>
+        <!-- 將 Spring Cloud Stream 連接至 RabbitMQ，讓 Function bean 能透過訊息佇列接收與發送事件。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
         </dependency>
 
         <dependency>
@@ -68,6 +79,42 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- 使用 Jib 建立 image：./mvnw compile jib:dockerBuild
+                 ⚠ compile 不能省 —— Jib 不會自己編譯，漏掉的錯誤訊息是
+                   "Obtaining project build output files failed"。
+                 各參數的完整說明見 card/pom.xml，那份寫得最詳細。 -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <from>
+                        <!-- 用本機已有的 image，不要連網（docker:// 前綴）。
+                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
+                        <image>docker://eclipse-temurin:25-jre-alpine</image>
+                    </from>
+                    <to>
+                        <image>anthonysk/${project.artifactId}:${project.version}</image>
+                    </to>
+                    <container>
+                        <ports>
+                            <!-- ⚠ 這只是 metadata（等同 Dockerfile 的 EXPOSE），
+                                 實際監聽的埠由 application.yaml 的 server.port 決定，
+                                 兩邊要保持一致。
+                                 ⚠ 這個 port 只有 function-web 的 HTTP 端點會用到 ——
+                                   真正的業務流量走 RabbitMQ，不經過它。 -->
+                            <port>9010</port>
+                        </ports>
+                        <user>nobody</user>
+                        <labels>
+                            <org.opencontainers.image.title>message-service</org.opencontainers.image.title>
+                            <org.opencontainers.image.description>事件驅動的通知服務（RabbitMQ 收訊息後模擬寄信／發簡訊）</org.opencontainers.image.description>
+                            <org.opencontainers.image.authors>Tony Shangkuan</org.opencontainers.image.authors>
+                            <org.opencontainers.image.source>https://github.com/tonysk0210/springboot-microservices</org.opencontainers.image.source>
+                        </labels>
+                    </container>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

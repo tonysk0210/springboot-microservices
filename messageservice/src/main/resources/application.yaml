@@ -1,3 +1,44 @@
+server:
+  port: 9010
+
 spring:
   application:
     name: messageservice
+
+  # RabbitMQ 連線。本服務「所有」業務流量都走這裡，沒有它就完全不會被觸發。
+  # 🔑 這四行可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
+  #    寫出來只是讓依賴關係看得見 —— 跟 configserver 同一種做法。
+  # ⚠ 容器裡的 localhost 是容器自己，要由 compose 覆寫成 SPRING_RABBITMQ_HOST: rabbitmq
+  #   （其他服務是靠 common.yml 的 microservice-base 帶進來的）。
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+  cloud:
+    function:
+      definition: email|sms
+
+    stream:
+      # ── 訊息的進出口 ──────────────────────────────────────────────────────
+      #  emailsms-in-0 / emailsms-out-0 這兩個 key「不是自己取的」，是約定：
+      #      email|sms  →  去掉 |  →  emailsms  →  加方向與索引
+      #  ⚠ 改了上面的 definition 就要跟著改這兩個名字，否則對應不起來 ——
+      #    而且「不會報錯」，只是訊息永遠不會流動。
+      #
+      #  ⚠⚠ 整段 bindings 不寫也不會失敗，但 destination 會退化成 binding 名稱本身
+      #      （exchange 變成 emailsms-in-0），跟 account 那邊約好的名字對不上。
+      bindings:
+        emailsms-in-0:
+          destination: send-communication      # 從這個 exchange 收
+          # 🔑 group = 「這幾台是同一個角色，輪流處理就好」。
+          # ⚠ 不寫的話每台各自一個臨時 queue → 開三台 messageservice (水平擴充) 就寄三封信，而且服務下線期間的訊息會直接消失（queue 被刪掉）。
+          group: ${spring.application.name}
+        emailsms-out-0:
+          destination: communication-sent      # 處理完丟到這個 exchange
+
+logging:
+  pattern:
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+

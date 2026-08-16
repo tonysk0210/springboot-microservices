@@ -129,6 +129,28 @@ spring:
       resilience4j:
         disable-thread-pool: true
 
+    # ── 送通知訊息給 messageservice ──────────────────────────────────────────
+    #  帳戶建立成功後丟一則訊息出去，由 messageservice 去「寄信 / 發簡訊」。
+    #
+    #  🔑 這是本專案第二種服務間溝通方式，跟 Feign 的定位完全不同：
+    #      Feign（同步）  我需要答案，我等你 —— 例如取得 loan / card 資料
+    #      訊息（非同步）  通知你一聲，我不等 —— 例如寄信這種副作用
+    #    使用者不該為了等一封信寄完而多等三秒。
+    #
+    #  ⚠ 不需要加任何依賴 —— spring-cloud-starter-bus-amqp 已經把
+    #    spring-cloud-stream + binder-rabbit 帶進來了（Bus 本身就建在 Stream 上）。
+    #
+    #  ⚠ binding 名稱是自己取的（因為用 StreamBridge 主動送，不是宣告 Function bean），
+    #    但要跟 AccountServiceImpl 裡 streamBridge.send(...) 的第一個參數完全一致。
+    #    ⚠⚠ 打錯字不會報錯 —— StreamBridge 會「即時建一個同名的 binding」，
+    #        於是訊息被送到一個沒人監聽的 exchange，安靜地消失。
+    #
+    #  ⚠ destination 要跟 messageservice 的 emailsms-in-0 一致，否則對方收不到。
+    stream:
+      bindings:
+        accountSendCommunication-out-0:
+          destination: send-communication
+
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
   #    寫出來只是讓依賴關係看得見，以及容器化時知道要改哪一行。
