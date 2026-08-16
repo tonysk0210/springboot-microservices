@@ -51,6 +51,25 @@
             <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
         </dependency>
 
+        <!-- Actuator —— OpenTelemetry 的前提。
+             ⚠ 追蹤的自動組態（management.tracing.*）住在 actuator 裡，
+               少了它下面那個依賴會被載入但「所有 management.* 設定都不生效」，
+               而且不會有任何警告。
+             順帶提供 /actuator/health，之後進 compose 做 healthcheck 會用到。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- OpenTelemetry —— 分散式追蹤（Trace）。
+             🔑 對本服務特別重要：它是「訊息驅動」的，沒有 HTTP 請求可以串，
+                traceId 是唯一能把它跟 account 的 log 接起來的東西。
+             OTel 會自動讀取 AMQP header 裡的 traceparent，延續 account 那邊的 trace。
+             ⚠ 還要 Tempo 容器接收 span，不然只是不斷嘗試送出然後失敗。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
