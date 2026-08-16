@@ -17,26 +17,17 @@ spring:
     password: guest
 
   cloud:
+    # ── 非同步通知（寄信 / 發簡訊）─────────────────────────────────────────
     function:
+      # 填了 Spring 才會啟用這些 @Bean 去監聽訊息 —— 不填的話 bean 存在但沒人觸發。
       definition: email|sms
-
     stream:
-      # ── 訊息的進出口 ──────────────────────────────────────────────────────
-      #  emailsms-in-0 / emailsms-out-0 這兩個 key「不是自己取的」，是約定：
-      #      email|sms  →  去掉 |  →  emailsms  →  加方向與索引
-      #  ⚠ 改了上面的 definition 就要跟著改這兩個名字，否則對應不起來 ——
-      #    而且「不會報錯」，只是訊息永遠不會流動。
-      #
-      #  ⚠⚠ 整段 bindings 不寫也不會失敗，但 destination 會退化成 binding 名稱本身
-      #      （exchange 變成 emailsms-in-0），跟 account 那邊約好的名字對不上。
       bindings:
-        emailsms-in-0:
-          destination: send-communication      # 從這個 exchange 收
-          # 🔑 group = 「這幾台是同一個角色，輪流處理就好」。
-          # ⚠ 不寫的話每台各自一個臨時 queue → 開三台 messageservice (水平擴充) 就寄三封信，而且服務下線期間的訊息會直接消失（queue 被刪掉）。
-          group: ${spring.application.name}
-        emailsms-out-0:
-          destination: communication-sent      # 處理完丟到這個 exchange
+        emailsms-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
+          destination: send-communication
+          group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
+        emailsms-out-0: # 有函式（同一條鏈的輸出）改不得
+          destination: communication-sent
 
 management:
   # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────

@@ -126,6 +126,35 @@ public class AccountServiceImpl implements IAccountService {
     }
 
 
+    /**
+     * 收到 messageservice 的回報後，把帳戶標記成「已通知」。
+     * <p>
+     * ⚠ 這裡「不是」用 orElseThrow —— 訊息是非同步來的，帳號可能已經被刪掉了，
+     * 那不算錯誤。拋例外的話訊息會被退回 queue 一直重試，變成無限迴圈。
+     */
+    @Transactional
+    @Override
+    public boolean updateCommunicationStatus(Integer accountNumber) {
+        // 1. 檢查帳戶編號是否為空
+        if (accountNumber == null) {
+            return false;
+        }
+        // 2. 根據帳戶編號查找帳戶
+        return accountRepo.findById(accountNumber)
+                .map(account -> {
+                    // 3. 將帳戶標記成「已通知」
+                    account.setCommunicationSw(true);
+                    // 4. 更新帳戶資料
+                    accountRepo.save(account);
+                    log.info("帳號 {} 已標記為「已通知」", accountNumber);
+                    return true;
+                })
+                .orElseGet(() -> {
+                    log.warn("收到通知回報，但找不到帳號 {} —— 可能已被刪除，略過", accountNumber);
+                    return false;
+                });
+    }
+
     // ///////////////
     // helper method
     // ///////////////

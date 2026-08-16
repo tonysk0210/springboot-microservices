@@ -129,27 +129,17 @@ spring:
       resilience4j:
         disable-thread-pool: true
 
-    # ── 送通知訊息給 messageservice ──────────────────────────────────────────
-    #  帳戶建立成功後丟一則訊息出去，由 messageservice 去「寄信 / 發簡訊」。
-    #
-    #  🔑 這是本專案第二種服務間溝通方式，跟 Feign 的定位完全不同：
-    #      Feign（同步）  我需要答案，我等你 —— 例如取得 loan / card 資料
-    #      訊息（非同步）  通知你一聲，我不等 —— 例如寄信這種副作用
-    #    使用者不該為了等一封信寄完而多等三秒。
-    #
-    #  ⚠ 不需要加任何依賴 —— spring-cloud-starter-bus-amqp 已經把
-    #    spring-cloud-stream + binder-rabbit 帶進來了（Bus 本身就建在 Stream 上）。
-    #
-    #  ⚠ binding 名稱是自己取的（因為用 StreamBridge 主動送，不是宣告 Function bean），
-    #    但要跟 AccountServiceImpl 裡 streamBridge.send(...) 的第一個參數完全一致。
-    #    ⚠⚠ 打錯字不會報錯 —— StreamBridge 會「即時建一個同名的 binding」，
-    #        於是訊息被送到一個沒人監聽的 exchange，安靜地消失。
-    #
-    #  ⚠ destination 要跟 messageservice 的 emailsms-in-0 一致，否則對方收不到。
+    # ── 非同步通知（寄信 / 發簡訊）─────────────────────────────────────────
+    function:
+      # 填了 Spring 才會啟用這個 @Bean 去監聽訊息 —— 不填的話 bean 存在但沒人觸發。
+      definition: accountReceiveCommunication
     stream:
       bindings:
-        accountSendCommunication-out-0:
+        accountSendCommunication-out-0: # 沒有函式，由 streamBridge.send 自己取
           destination: send-communication
+        accountReceiveCommunication-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
+          destination: communication-sent
+          group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
 
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
@@ -166,7 +156,12 @@ spring:
 
   datasource:
     # 本機開發用 H2 檔案模式（~ 是使用者家目錄，不受 JVM 工作目錄影響）。
-    # ⚠ 容器裡永遠用不到這個值 —— image 內建的 ENV 已經把它蓋成 jdbc:h2:mem:accountdb。
+    # ⚠ 容器裡用不到這個預設值，但被蓋成什麼要看兩層：
+    #     Dockerfile 的 ENV  → jdbc:h2:mem:accountdb（記憶體）
+    #     compose.yml 又蓋掉 → jdbc:h2:file:/data/accountdb + volume account-data
+    #   最終生效的是 compose 那個，所以「容器也是檔案模式，重啟資料留著」。
+    #   ⚠ 只看 Dockerfile 會誤以為是記憶體模式 —— 加欄位時就會踩到
+    #     Schema validation: missing column（詳見 sql/schema.sql 的說明）。
     url: ${SPRING_DATASOURCE_URL:jdbc:h2:file:~/h2db/accountdb;AUTO_SERVER=true}
     driverClassName: org.h2.Driver
     username: sa

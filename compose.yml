@@ -1,11 +1,13 @@
 # =============================================================================
-#  八個容器的編排：改成一行 docker compose up -d
+#  十個容器的編排：改成一行 docker compose up -d
 #
-#    rabbitmq      Bus 的訊息中介，configserver 和四個 Spring 服務都連它
+#    rabbitmq      訊息中介。兩種用途：Bus 廣播設定刷新 + account↔messageservice 的通知
 #    configserver  設定中心，其他五個向它拿設定
 #    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
 #    account / loan / card
+#    messageservice 事件驅動的通知服務（只收發訊息，沒有 HTTP API）
 #    redis         Gateway 限流的計數器
+#    keycloak      授權伺服器，發 token
 #    gatewayserver 對外單一入口（8072），路由到三個服務
 #
 #  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card / gatewayserver）
@@ -332,6 +334,46 @@ services:
 
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  #  messageservice —— 事件驅動的通知服務（模擬寄信 / 發簡訊）
+  #
+  #  🔑 本專案唯一「不走 HTTP」的服務：沒有 Controller、不註冊 Eureka、
+  #     gateway 也沒有它的路由。全部靠 RabbitMQ 收發：
+  #         account ──send-communication──▶ 我 ──communication-sent──▶ account
+  #
+  #  ⚠ 用 configserver-base 不是 microservice-base ——
+  #    它沒有 Config Client 也沒有 Eureka Client，那層帶的
+  #    CONFIGSERVER_HOST / EUREKA_URL / H2 設定對它全都沒有作用。
+  #    只需要 configserver-base 的 SPRING_RABBITMQ_HOST 和 JVM 參數。
+  #
+  #  ⚠ 刻意「不」depends_on account —— 兩者透過 exchange 解耦，
+  #    誰先起來都沒關係。account 早起的話訊息會在 queue 裡等著。
+  # ---------------------------------------------------------------------------
+  messageservice:
+    # image 由 Jib 建：cd messageservice && ./mvnw compile jib:dockerBuild
+    image: anthonysk/messageservice:0.0.1-SNAPSHOT
+    container_name: messageservice-ms
+    ports:
+      # ⚠ 這個 port 只給 /actuator/health 和 function-web 的測試端點用，
+      #   業務流量完全走 RabbitMQ，不經過它。
+      - "9010:9010"
+
+    extends:
+      file: common.yml
+      service: configserver-base
+
+    environment:
+      # microservice-base 才有這一項，這裡單獨補上（它有裝 OpenTelemetry）。
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+
+    healthcheck:
+      # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver / card。
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9010/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -756,12 +798,18 @@ volumes:
 #  常用指令（PowerShell，在專案根目錄執行）
 #
 #  ── 先建 image（本檔案不負責建，改過程式碼一定要重跑對應那行）─────────────
-#  cd configserver; ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd eurekaserver; ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd account;      docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
-#  cd loan;         ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks）
-#  cd card;         ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd gatewayserver; ./mvnw compile jib:dockerBuild                      （Jib）
+#  cd configserver;   ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd eurekaserver;   ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd account;        docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
+#  cd loan;           ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks）
+#  cd card;           ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd messageservice; ./mvnw compile jib:dockerBuild                       （Jib）
+#  cd gatewayserver;  ./mvnw compile jib:dockerBuild                       （Jib）
+#
+#  ⚠ 六個服務刻意用三種不同的建置方式（Jib / Dockerfile / Buildpacks），
+#    是為了對照各自的優缺點 —— 正式專案應該統一成一種。
+#  ⚠ 沒建就 up 的話錯誤訊息是 pull access denied（很誤導）——
+#    實際上只是本機還沒有這個 image，跟權限無關。
 #
 #  ⚠ 本機若還有 IntelliJ / mvnw 跑著同樣的服務，port 會衝突
 #    （8070 / 8071 / 8072 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
