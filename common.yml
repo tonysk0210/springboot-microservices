@@ -72,11 +72,9 @@ services:
       # ⚠ 結尾的 /eureka/ 不能省，那是 Eureka 的 API 路徑，不是根路徑。
       EUREKA_URL: http://eurekaserver:8070/eureka/
 
-      # application.yaml 的 import 帶著 optional:（本機單獨跑某個服務時方便），
-      # 但容器裡不該容忍 —— depends_on 已保證 configserver 先 healthy，
-      # 這時還連不上就是真的有問題，不該安靜地啟動成「設定全是 null」。
-      # 這個開關讓 optional: 失效，連不上就 fail fast。
-      SPRING_CLOUD_CONFIG_FAIL_FAST: "true"
+      # application.yaml 預設帶 optional:（本機單獨跑某個服務時方便）；容器中
+      # 設空字串移除 optional:，連不上 Config Server 就直接啟動失敗。
+      CONFIGSERVER_OPTIONAL_PREFIX: ""
 
       # OpenTelemetry 的 span 往這裡送。application.yaml 寫的是
       #     ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}

@@ -11,3 +11,107 @@ data:
   SPRING_RABBITMQ_HOST: "host.docker.internal"
   # 明確開啟 Spring Boot 的 Kubernetes health probe endpoints。
   MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eurekaserver-config
+data:
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  CONFIGSERVER_HOST: "configserver"
+  EUREKA_HOST: "eurekaserver"
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: account-config
+data:
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  CONFIGSERVER_HOST: "configserver"
+  EUREKA_URL: "http://eurekaserver:8070/eureka/"
+  # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
+  CONFIGSERVER_OPTIONAL_PREFIX: ""
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/accountdb"
+  # 連到 Compose Kafka 專門提供給本機 Kubernetes Pod 的 listener。
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
+  OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loan-config
+data:
+  BPL_JVM_THREAD_COUNT: "50"
+  CONFIGSERVER_HOST: "configserver"
+  EUREKA_URL: "http://eurekaserver:8070/eureka/"
+  # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
+  CONFIGSERVER_OPTIONAL_PREFIX: ""
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/loandb"
+  OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: card-config
+data:
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  CONFIGSERVER_HOST: "configserver"
+  EUREKA_URL: "http://eurekaserver:8070/eureka/"
+  # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
+  CONFIGSERVER_OPTIONAL_PREFIX: ""
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/carddb"
+  OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messageservice-config
+data:
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  # 連到 Compose Kafka 專門提供給本機 Kubernetes Pod 的 listener。
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
+  OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatewayserver-config
+data:
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  CONFIGSERVER_HOST: "configserver"
+  EUREKA_URL: "http://eurekaserver:8070/eureka/"
+  # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
+  CONFIGSERVER_OPTIONAL_PREFIX: ""
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  SPRING_DATA_REDIS_HOST: "host.docker.internal"
+  SPRING_PROFILES_ACTIVE: "auth"
+  KEYCLOAK_JWK_SET_URI: "http://host.docker.internal:7080/realms/master/protocol/openid-connect/certs"
+  OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"

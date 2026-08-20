@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messageservice-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: messageservice
+  template:
+    metadata:
+      labels:
+        app: messageservice
+    spec:
+      containers:
+        - name: messageservice
+          image: anthonysk/messageservice:0.0.1-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9010
+          envFrom:
+            - configMapRef:
+                name: messageservice-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 700Mi
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: messageservice
+spec:
+  type: LoadBalancer
+  selector:
+    app: messageservice
+  ports:
+    - name: http
+      port: 9010
+      targetPort: http

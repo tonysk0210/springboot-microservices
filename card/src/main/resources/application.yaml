@@ -37,7 +37,8 @@ spring:
   #   症狀：log 每次啟動和 refresh 都多印 localhost:8071 的 Connection refused，
   #        程式其實正常（被 optional: 忽略了），但假警報會蓋掉真警報。
   config:
-    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+    # 本機預設 optional；Compose / Kubernetes 設空字串後，Config Server 就是必要依賴。
+    import: "${CONFIGSERVER_OPTIONAL_PREFIX:optional:}configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
 
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。

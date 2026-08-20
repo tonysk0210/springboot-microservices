@@ -9,8 +9,8 @@ spring:
 
   config:
     # 從 ConfigServer 載入設定；容器使用 CONFIGSERVER_HOST，本機預設為 localhost。
-    # optional: 表示連線失敗時仍允許 Gateway 啟動。
-    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
+    # 本機預設 optional；Compose / Kubernetes 設空字串後，Config Server 就是必要依賴。
+    import: "${CONFIGSERVER_OPTIONAL_PREFIX:optional:}configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
 
   cloud:
     gateway:

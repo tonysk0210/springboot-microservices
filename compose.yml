@@ -159,10 +159,12 @@ services:
       #          （因為要直接連到各 partition 的 leader）。
       #          所以回報 kafka:9092 的話，IntelliJ 解析不到那個名字 → 連不上。
       #
-      #   解法是開「兩個 listener」，各自回報不同位址：
-      #       INTERNAL  kafka:9092        給容器用
-      #       EXTERNAL  localhost:29092   給 IntelliJ 用   ← 只有這個要對外發布
+      #   解法是依執行環境開 listener，各自回報該環境能解析的位址：
+      #       INTERNAL    kafka:9092                       給 Compose 容器用
+      #       EXTERNAL    localhost:29092                  給 Windows / IntelliJ 用
+      #       KUBERNETES  host.docker.internal:39092       給本機 Kubernetes Pod 用
       - "29092:29092"
+      - "39092:39092"
 
     environment:
       # ── KRaft 單節點 ────────────────────────────────────────────────────
@@ -171,11 +173,11 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
-      # ── 兩個對外 listener + 一個內部選舉用 ──────────────────────────────
-      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
-      # 🔑 這一行決定 broker「告訴客戶端要連哪裡」，是雙邊存取的關鍵。
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # ── 三種客戶端 listener + 一個內部選舉用 ────────────────────────────
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,KUBERNETES://:39092,CONTROLLER://:9093
+      # 🔑 broker 會依照客戶端連入的 listener，回報該 listener 對應的位址。
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092,KUBERNETES://host.docker.internal:39092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,KUBERNETES:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
       # ⚠ 這三行不能省 —— 預設值是 3，單節點湊不到三份副本會直接啟動失敗。
@@ -931,7 +933,7 @@ volumes:
 #  cd configserver;   ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd eurekaserver;   ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd account;        docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
-#  cd loan;           ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks）
+#  cd loan;           ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks） ./mvnw spring-boot:build-image "-Dmaven.test.skip=true" "-Dspring-boot.build-image.publish=true"
 #  cd card;           ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd messageservice; ./mvnw compile jib:dockerBuild                       （Jib）
 #  cd gatewayserver;  ./mvnw compile jib:dockerBuild                       （Jib）
