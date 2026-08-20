@@ -59,14 +59,27 @@ public class AccountEventListener {
         //   雖然資料已經 commit 不會回滾了，但使用者還是會收到 500。
         //   吞掉它才是真正的 fire-and-forget —— 代價是失敗只留在 log 裡。
         try {
-            log.info("Account 送出通知訊息到 RabbitMQ：{}", msg);
+            // ① RabbitMQ —— 通知流程（指令）。messageservice 消費掉之後訊息就消失。
+            log.info("Account 準備發布 RabbitMQ 通知指令：{}", msg);
             boolean sent = streamBridge.send("accountSendCommunication-out-0", msg);
-            log.info("Account 通知訊息是否送達 RabbitMQ broker：{}", sent);
+            log.info("RabbitMQ 通知指令是否已交給 output binding：{}", sent);
+
+            // ② Kafka —— 事件紀錄。同樣的內容會被 messageservice 處理，
+            //   但仍留在 topic 裡（預設 7 天）可以重播。
+            // 🔑 刻意送兩份是為了「同一件事、兩種語意」的對照：
+            //      RabbitMQ「請你去寄信」 —— 做完就結束，沒有保留價值
+            //      Kafka   「開戶這件事發生了」—— 誰要用自己來讀，可以事後回溯
+            // messageservice 處理後會再把帳號送到 Kafka 的 kafka-communication-sent，
+            // account 消費後更新 communication_sw。
+            //   要看內容就從 CLI 讀，指令寫在 application.yaml 的 accountSendKafkaCommunication-out-0 那段。
+            log.info("Account 準備發布 Kafka 開戶事件：{}", msg);
+            boolean published = streamBridge.send("accountSendKafkaCommunication-out-0", msg);
+            log.info("Kafka 開戶事件是否已交給 output binding：{}", published);
         } catch (Exception e) {
             // ⚠ 帳戶已經建好了，這裡失敗「不該」讓 API 失敗。
             //   但也代表這筆通知就此遺失 —— 之後要靠 communication_sw 還是 null
             //   來找出「開戶了卻沒收到通知」的帳戶。
-            log.error("通知訊息送不出去（帳戶已建立，不受影響）：{}", msg, e);
+            log.error("帳戶建立後的訊息發布失敗（帳戶已建立，不受影響）：{}", msg, e);
         }
     }
 }

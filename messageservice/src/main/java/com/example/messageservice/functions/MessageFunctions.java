@@ -14,6 +14,9 @@ import java.util.function.Function;
  * <pre>
  *     RabbitMQ ──▶ email() ──▶ sms() ──▶ RabbitMQ
  *     AccountMsgDto  AccountMsgDto   Integer
+ *
+ *     Kafka ──▶ kafkaEmailSms() ──▶ Kafka
+ *              AccountMsgDto → Integer
  * </pre>
  * 🔑 前一個的回傳型別必須是後一個的參數型別，否則啟動就失敗。
  */
@@ -43,6 +46,20 @@ public class MessageFunctions {
         return accountsMsgDto -> {
             log.info("寄送簡訊，內容：{}", accountsMsgDto);
             return accountsMsgDto.accountNumber();
+        };
+    }
+
+    /**
+     * Kafka 版通知處理器。使用獨立 bean 才能把同一套處理流程綁到另一組
+     * Kafka input/output binding；內部仍重用上面的 email 與 sms 函式。
+     */
+    @Bean
+    public Function<AccountMsgDto, Integer> kafkaEmailSms() {
+        return accountsMsgDto -> {
+            log.info("Kafka 開始處理通知，內容：{}", accountsMsgDto);
+            Integer accountNumber = sms().apply(email().apply(accountsMsgDto));
+            log.info("Kafka 通知處理完成，回傳帳號：{}", accountNumber);
+            return accountNumber;
         };
     }
 }

@@ -3,6 +3,7 @@ server:
 
 logging:
   level:
+    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
     # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面這行）
@@ -132,14 +133,55 @@ spring:
     # ── 非同步通知（寄信 / 發簡訊）─────────────────────────────────────────
     function:
       # 填了 Spring 才會啟用這個 @Bean 去監聽訊息 —— 不填的話 bean 存在但沒人觸發。
-      definition: accountReceiveCommunication
+      # ⚠ 將來要加第二個函式的話用「分號」隔開（a;b），不是逗號 ——
+      #   逗號是「組合成一個複合函式」的意思，寫錯會找不到函式而靜靜失效。
+      definition: accountReceiveCommunication;accountReceiveKafkaCommunication
     stream:
+      # ⚠⚠ 有兩個 binder 時這一行不能省。
+      #   Spring Cloud Bus 也走 Stream，但它的 binding（springCloudBusInput/Output）
+      #   沒有寫在下面 → 會去吃「預設 binder」。只有一個 binder 時 Spring 自動選那個；
+      #   兩個時就不知道該選誰，啟動失敗而且錯誤訊息不會提到 Bus。
+      default-binder: rabbit1
+
+      # 🔑 Kafka 和 RabbitMQ 的連線設定都寫在下面 spring.kafka / spring.rabbitmq
+      #    ——「同一層、同一種風格」。這裡只負責取名字和指定型別。
+      binders:
+        rabbit1:
+          type: rabbit
+        kafka1:
+          type: kafka
+
       bindings:
+        # ── RabbitMQ：通知流程（指令，處理完就消失）────────────────────────
         accountSendCommunication-out-0: # 沒有函式，由 streamBridge.send 自己取
           destination: send-communication
+          binder: rabbit1
         accountReceiveCommunication-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
           destination: communication-sent
+          binder: rabbit1
           group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
+
+        # ── Kafka：事件紀錄（完整往返，topic 內仍留著可重播）──────────────────
+        # 🔑 刻意跟上面送「一模一樣的內容」到不同 broker，就是為了對照差異：
+        #      RabbitMQ 那則 → messageservice 消費掉 → 消失
+        #      Kafka 那則    → 留在 topic 裡，offset 倒回去就能重讀
+        # ⚠ 沒有設 key，所以訊息會平均散到各 partition、沒有順序保證。
+        #   要「同一個帳號照順序」得加 producer.partition-key-expression。
+        #
+        # 🔑 messageservice 會用自己的 consumer group 讀 kafka-send-communication，處理後
+        #    再送 kafka-communication-sent；account 以另一個 group 讀回傳事件。
+        #    要親眼看內容就從 CLI 讀（--from-beginning 會把歷史全部倒出來，
+        #    而且讀完訊息還留在 topic 裡，可以重複讀到爛）：
+        #      docker exec kafka-ms /opt/kafka/bin/kafka-console-consumer.sh \
+        #        --bootstrap-server localhost:9092 --topic kafka-send-communication --from-beginning
+        #    ⚠ 容器內部要用 9092（INTERNAL listener）；從主機的工具連才是 29092。
+        accountSendKafkaCommunication-out-0:
+          destination: kafka-send-communication
+          binder: kafka1
+        accountReceiveKafkaCommunication-in-0:
+          destination: kafka-communication-sent
+          binder: kafka1
+          group: ${spring.application.name}-kafka
 
   # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
   # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
@@ -153,6 +195,47 @@ spring:
     port: 5672
     username: guest
     password: guest
+
+  # Kafka 連線（account-events 這個事件 topic 用它）
+  # 🔑 刻意跟上面 rabbitmq 放同一層 —— 兩個 broker 的「位址設定」就該長得一樣。
+  #    Kafka 只有一行是因為它把主機、埠都塞進一個清單（a:9092,b:9092），
+  #    而且沒有 username/password 這種欄位（要認證是走 security.protocol + sasl.*）。
+  #
+  # ⚠ Kafka 跟 MySQL 不同，本機和容器「不能」共用同一個位址 ——
+  #   broker 會把自己的位址回報給客戶端，叫它改連過去。
+  #   所以 compose 開了兩個 listener，這裡各連各的：
+  #       本機 → localhost:29092（EXTERNAL）← 就是下面寫死的這個值
+  #       容器 → kafka:9092（INTERNAL）    ← compose 設 SPRING_KAFKA_BOOTSTRAP_SERVERS 覆寫
+  #
+  # 🔑 這裡「刻意寫死」，不用 ${KAFKA_BOOTSTRAP_SERVERS:...} 這種佔位符 ——
+  #    bootstrap-servers 是標準的 Boot 屬性，環境變數形式
+  #    SPRING_KAFKA_BOOTSTRAP_SERVERS 本來就蓋得掉它（實測 2026-08-19：設成
+  #    127.0.0.1:29092，log 印的就是 127.0.0.1:29092），佔位符只是多繞一圈。
+  #    判準：值是「整個屬性」→ 寫死 + 標準環境變數；值只是「字串的一小段」
+  #    → 才需要佔位符（例如上面的 spring.config.import，位址插在 URL 中間）。
+  #
+  # ⚠⚠ 這一行「不能」搬進 spring.cloud.stream.binders.kafka1.environment ⚠⚠
+  #   同一個屬性，寫在這裡（頂層）通，塞進那個 environment 區塊就不通 ——
+  #   兩種寫法都實測過（2026-08-19）。所以問題從來不是「寫在哪一層」，是「別放進 environment」。
+  #
+  #   放錯的症狀（很難認）：服務「照樣啟動成功」，只是每 30 秒噴一次 ——
+  #       o.a.k.c.a.i.AdminMetadataManager - Metadata update failed
+  #       TimeoutException: The AdminClient thread has exited. Call: fetchMetadata
+  #       BindingService - Failed to create producer binding; retrying in 30 seconds
+  #       ProvisioningException: Provisioning exception encountered for account-events
+  #       Caused by: java.util.concurrent.TimeoutException     ← listTopics() 等 30 秒
+  #   /actuator/health 也只顯示 kafka1 是 UNKNOWN（No bindings found），像雜訊；
+  #   但 accountSendEvent-out-0 從頭到尾沒建起來，事件一則都送不出去。
+  #
+  #   🔑 怎麼一眼確認位址對不對：開戶時 log 裡 AdminClientConfig 那段的
+  #      bootstrap.servers 要是 29092。印出 9092 就是這一行沒被讀到 ——
+  #      因為「沒設」的預設值剛好是 localhost:9092，跟「設錯」的症狀一模一樣。
+  #
+  # 另一種寫法（本專案不採用）：spring.cloud.stream.kafka.binder.brokers
+  #   那是 Kafka binder 自己的屬性，優先權比這一行高。要連兩個不同的 Kafka
+  #   叢集時才需要它（可以每個 binder 各指一個），單一叢集用這行就好。
+  kafka:
+    bootstrap-servers: localhost:29092
 
   datasource:
     # 🔑 IntelliJ 和容器連的是「同一台 MySQL 的同一個 database」——

@@ -35,6 +35,15 @@
         <spring-cloud.version>2025.1.2</spring-cloud.version>
     </properties>
     <dependencies>
+        <!-- Kafka 的 binder。
+             ⚠ RabbitMQ 的 binder「不用寫」—— spring-cloud-starter-bus-amqp 已經帶進來了。
+             🔑 兩個 binder 同時存在時，application.yaml 一定要設 default-binder，
+                否則 Spring Cloud Bus 的 binding（springCloudBusInput/Output）
+                不知道該用哪個，啟動會失敗而且訊息看不出是 Bus 的問題。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream-binder-kafka</artifactId>
+        </dependency>
         <!-- MySQL 的 JDBC driver。版本由 Boot 的 BOM 管，不用寫。
              ⚠ scope 是 runtime —— 程式碼不該 import driver 類別，只有 JVM 執行期要載入它。
              🔑 application.yaml 刻意「不寫」driverClassName —— Spring Boot 會從連線字串

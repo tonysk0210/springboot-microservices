@@ -16,18 +16,42 @@ spring:
     username: guest
     password: guest
 
+  # 本機從 Docker 外部 listener 連 Kafka；容器內由 compose 覆寫成 kafka:9092。
+  kafka:
+    bootstrap-servers: localhost:29092
+
   cloud:
-    # ── 非同步通知（寄信 / 發簡訊）─────────────────────────────────────────
+    # ── 非同步通知（RabbitMQ 與 Kafka 並行示範）────────────────────────────
     function:
-      # 填了 Spring 才會啟用這些 @Bean 去監聽訊息 —— 不填的話 bean 存在但沒人觸發。
-      definition: email|sms
+      # 分號表示兩條獨立流程；email|sms 是 RabbitMQ，kafkaEmailSms 是 Kafka。
+      definition: email|sms;kafkaEmailSms
     stream:
+      # 兩個 binder 並存時，沒有明寫 binder 的基礎設施 binding 預設走 RabbitMQ。
+      default-binder: rabbit1
+      binders:
+        rabbit1:
+          type: rabbit
+        kafka1:
+          type: kafka
+
       bindings:
+        # RabbitMQ：account → messageservice → account
         emailsms-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
           destination: send-communication
+          binder: rabbit1
           group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
         emailsms-out-0: # 有函式（同一條鏈的輸出）改不得
           destination: communication-sent
+          binder: rabbit1
+
+        # Kafka：kafka-send-communication → messageservice → kafka-communication-sent
+        kafkaEmailSms-in-0:
+          destination: kafka-send-communication
+          binder: kafka1
+          group: ${spring.application.name}-kafka
+        kafkaEmailSms-out-0:
+          destination: kafka-communication-sent
+          binder: kafka1
 
 management:
   # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
@@ -62,6 +86,7 @@ management:
         enabled: false
 
 logging:
+  level:
+    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
-

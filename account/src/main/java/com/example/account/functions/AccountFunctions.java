@@ -23,7 +23,16 @@ public class AccountFunctions {
     @Bean
     public Consumer<Integer> accountReceiveCommunication(IAccountService accountsService) {
         return accountNumber -> {
-            log.info("更新帳戶的通知狀態，帳號：{}", accountNumber);
+            log.info("收到 RabbitMQ 通知完成訊息，更新帳戶狀態，帳號：{}", accountNumber);
+            accountsService.updateCommunicationStatus(accountNumber);
+        };
+    }
+
+    /** 接收 messageservice 經 Kafka 回傳的通知完成事件。 */
+    @Bean
+    public Consumer<Integer> accountReceiveKafkaCommunication(IAccountService accountsService) {
+        return accountNumber -> {
+            log.info("收到 Kafka 通知完成事件，更新帳戶狀態，帳號：{}", accountNumber);
             accountsService.updateCommunicationStatus(accountNumber);
         };
     }

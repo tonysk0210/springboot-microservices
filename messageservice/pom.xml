@@ -50,6 +50,11 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-stream-rabbit</artifactId>
         </dependency>
+        <!-- 同一組通知流程也接上 Kafka，示範事件可保留、可重播的完整往返。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream-binder-kafka</artifactId>
+        </dependency>
 
         <!-- Actuator —— OpenTelemetry 的前提。
              ⚠ 追蹤的自動組態（management.tracing.*）住在 actuator 裡，

@@ -136,6 +136,80 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
+  #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
+  #
+  #  🔑 account 同時接兩個 broker：
+  #        RabbitMQ  send-communication / communication-sent   通知流程（指令）
+  #        Kafka     kafka-send-communication / kafka-communication-sent  事件紀錄（可重播）
+  #     同一次開戶會各送一則，行為差異一目了然：
+  #        RabbitMQ 那則被 messageservice 消費掉就消失
+  #        Kafka 那則留在 topic 裡，offset 可以倒回去重讀
+  #
+  #  ⚠ KRaft 模式（Kafka 3.3+ 起不需要 ZooKeeper），單一節點同時當 broker 和 controller。
+  #    所以下面那堆 replication-factor 都要設成 1 —— 預設是 3，單節點會啟動失敗。
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: kafka-ms
+    ports:
+      # ⚠⚠ 這裡跟 MySQL「不一樣」，是這份設定最容易踩的地方。
+      #
+      #   MySQL：一個 3306 兩邊都能用 —— 客戶端連上去就結束了。
+      #   Kafka：客戶端連上任何一台後，broker 會「回報自己的位址」叫客戶端改連那裡
+      #          （因為要直接連到各 partition 的 leader）。
+      #          所以回報 kafka:9092 的話，IntelliJ 解析不到那個名字 → 連不上。
+      #
+      #   解法是開「兩個 listener」，各自回報不同位址：
+      #       INTERNAL  kafka:9092        給容器用
+      #       EXTERNAL  localhost:29092   給 IntelliJ 用   ← 只有這個要對外發布
+      - "29092:29092"
+
+    environment:
+      # ── KRaft 單節點 ────────────────────────────────────────────────────
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # ── 兩個對外 listener + 一個內部選舉用 ──────────────────────────────
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      # 🔑 這一行決定 broker「告訴客戶端要連哪裡」，是雙邊存取的關鍵。
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      # ⚠ 這三行不能省 —— 預設值是 3，單節點湊不到三份副本會直接啟動失敗。
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      # 本機開發不需要等 —— 預設 3 秒是為了讓多台消費者一起加入再分配，
+      # 單機時只會讓第一次啟動白等。
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      # 訊息實際存放的位置（對應下面的 volume）
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+
+    volumes:
+      # ⚠ 不掛的話容器重建就失去所有訊息和 offset —— 那樣「可重播」這個
+      #   最大的賣點就示範不出來了。
+      - "kafka-data:/var/lib/kafka/data"
+
+    healthcheck:
+      # image 內建的 CLI 工具，能列出 topic 就代表 broker 真的可用了。
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      # ⚠ KRaft 第一次啟動要格式化儲存目錄，比 MySQL 還慢。
+      start_period: 45s
+
+    # 不是 Spring 服務，只要記憶體上限那一層
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  configserver —— 設定中心（git 後端 + Bus 廣播 + webhook monitor）
   # ---------------------------------------------------------------------------
   configserver:
@@ -273,11 +347,25 @@ services:
     environment:
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
 
+      # ⚠ 容器要走 INTERNAL listener（kafka:9092），本機走 EXTERNAL（localhost:29092）。
+      #   兩者不能互換 —— broker 會回報自己的位址叫客戶端改連過去。
+      #
+      # 🔑 名字就是「標準屬性 spring.kafka.bootstrap-servers 的環境變數形式」——
+      #    大寫、點和減號都換成底線。所以 application.yaml 那邊寫死本機值就好，
+      #    不需要 ${...} 佔位符。跟上面 SPRING_DATASOURCE_URL 和
+      #    common.yml 的 SPRING_RABBITMQ_HOST 是同一套做法。
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
     # ⚠ 硬依賴：連不上資料庫的話 Hibernate 建不出 EntityManagerFactory，
     #   服務直接啟動失敗（不是重試，是掛掉）。
     #   而 MySQL 第一次啟動要初始化資料目錄 + 建三個 database，比誰都慢。
+    #
+    # ⚠ kafka 是「軟依賴」硬寫：連不上時 account 還是能啟動（binder 會重試），
+    #   但第一次送事件會失敗。寫出來讓啟動後就是可用狀態。
     depends_on:
       mysql:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
 
     healthcheck:
@@ -376,13 +464,15 @@ services:
   #  messageservice —— 事件驅動的通知服務（模擬寄信 / 發簡訊）
   #
   #  🔑 本專案唯一「不走 HTTP」的服務：沒有 Controller、不註冊 Eureka、
-  #     gateway 也沒有它的路由。全部靠 RabbitMQ 收發：
+  #     gateway 也沒有它的路由。RabbitMQ 與 Kafka 各跑一條完整往返：
   #         account ──send-communication──▶ 我 ──communication-sent──▶ account
+  #         account ──kafka-send-communication──▶ 我 ──kafka-communication-sent──▶ account
   #
   #  ⚠ 用 configserver-base 不是 microservice-base ——
   #    它沒有 Config Client 也沒有 Eureka Client，那層帶的
   #    CONFIGSERVER_HOST / EUREKA_URL / H2 設定對它全都沒有作用。
-  #    只需要 configserver-base 的 SPRING_RABBITMQ_HOST 和 JVM 參數。
+  #    使用 configserver-base 取得 SPRING_RABBITMQ_HOST 和 JVM 參數；Kafka 位址
+  #    則在本服務下方另外覆寫。
   #
   #  ⚠ 刻意「不」depends_on account —— 兩者透過 exchange 解耦，
   #    誰先起來都沒關係。account 早起的話訊息會在 queue 裡等著。
@@ -403,6 +493,12 @@ services:
     environment:
       # microservice-base 才有這一項，這裡單獨補上（它有裝 OpenTelemetry）。
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+      # 容器內走 Kafka INTERNAL listener；本機 application.yaml 走 localhost:29092。
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
+    depends_on:
+      kafka:
+        condition: service_healthy
 
     healthcheck:
       # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver / card。
@@ -798,6 +894,7 @@ services:
 # =============================================================================
 volumes:
   mysql-data:        # account / loan / card 三個 database 都在這一塊裡
+  kafka-data:        # topic 的訊息本體 + 各 group 的 offset
   rabbitmq-data:
   keycloak-data:     # realm / client / role / user —— 沒有它，容器一重建設定就全沒
   # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
