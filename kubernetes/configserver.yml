@@ -33,18 +33,11 @@ spec:
           ports:
             - name: http
               containerPort: 8071
+          # 一般環境設定集中由 ConfigMap 管理；機密仍由下方 Secret 提供。
+          envFrom:
+            - configMapRef:
+                name: configserver-config
           env:
-            # Jib image 使用 nobody 執行；讓 JGit 能在可寫目錄建立快取。
-            - name: HOME
-              value: /tmp
-            - name: JAVA_TOOL_OPTIONS
-              value: "-XX:MaxRAMPercentage=75"
-            # 預期叢集內另有一個名為 rabbitmq 的 Service。
-            - name: SPRING_RABBITMQ_HOST
-              value: rabbitmq
-            # 明確開啟 Spring Boot 的 Kubernetes health probe endpoints。
-            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
-              value: "true"
             # 真實金鑰不放進 YAML / Git，部署前先建立 configserver-secrets。
             - name: ENCRYPT_KEY
               valueFrom:

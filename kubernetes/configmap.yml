@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configserver-config
+data:
+  # Jib image 使用 nobody 執行；讓 JGit 能在可寫目錄建立快取。
+  HOME: "/tmp"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  # 過渡期由 Kubernetes Pod 連到 Docker Compose 管理的 RabbitMQ。
+  # 等 RabbitMQ 搬進叢集並建立 rabbitmq Service 後，再改回 "rabbitmq"。
+  SPRING_RABBITMQ_HOST: "host.docker.internal"
+  # 明確開啟 Spring Boot 的 Kubernetes health probe endpoints。
+  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
