@@ -1,0 +1,108 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: configserver-secrets
+type: Opaque
+stringData:
+  # 僅供本機學習；提交 Git 前必須移除或改回由外部建立 Secret。
+  encrypt-key: "560b5cca941e67b3f6a040f1f9c2744508889f5613131b269ff4d16f6c2a3062"
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: configserver-deployment
+  labels:
+    app: configserver
+spec:
+  # Config Server 本身不保存業務資料；設定來源在 GitHub，因此 Pod 可安全重建。
+  replicas: 1
+  selector:
+    matchLabels:
+      app: configserver
+  template:
+    metadata:
+      labels:
+        app: configserver
+    spec:
+      containers:
+        - name: configserver
+          image: anthonysk/configserver:0.0.1-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8071
+          env:
+            # Jib image 使用 nobody 執行；讓 JGit 能在可寫目錄建立快取。
+            - name: HOME
+              value: /tmp
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75"
+            # 預期叢集內另有一個名為 rabbitmq 的 Service。
+            - name: SPRING_RABBITMQ_HOST
+              value: rabbitmq
+            # 明確開啟 Spring Boot 的 Kubernetes health probe endpoints。
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            # 真實金鑰不放進 YAML / Git，部署前先建立 configserver-secrets。
+            - name: ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: configserver-secrets
+                  key: encrypt-key
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 700Mi
+          # clone-on-start 需要先從 GitHub clone 設定 repo，給它較長啟動時間。
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: configserver
+  labels:
+    app: configserver
+spec:
+  # 學習用：保留叢集內的 http://configserver:8071，並要求建立外部入口。
+  # 實際是否取得外部 IP，取決於本機／雲端 Kubernetes 是否提供 LoadBalancer 實作。
+  type: LoadBalancer
+  selector:
+    app: configserver
+  ports:
+    - name: http
+      port: 8071
+      targetPort: http
