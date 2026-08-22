@@ -58,4 +58,18 @@ public class CustomerController {
                 .status(HttpStatus.OK)
                 .body(detailDto);
     }
+
+    /**
+     * 學習用對照端點：loan / card 改由 Kubernetes Service 分流，不使用 Eureka 查找實例。
+     */
+    @GetMapping("/fetch-customerAccLoanCardDetail-k8s")
+    public ResponseEntity<CustomerAccLoanCardDetailDto> fetchCustomerAccLoanCardDetailKubernetes(@RequestParam
+                                                                                                 @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
+                                                                                                 String mobileNumber) {
+        CustomerAccLoanCardDetailDto detailDto = customerService.fetchCustomerAccLoanCardDetailKubernetesDto(mobileNumber);
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .header("X-Cross-Service-Discovery", "kubernetes-service")
+                .body(detailDto);
+    }
 }

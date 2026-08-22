@@ -37,6 +37,9 @@ data:
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
   CONFIGSERVER_HOST: "configserver"
   EUREKA_URL: "http://eurekaserver:8070/eureka/"
+  # 直接 Service 對照路徑：由 Kubernetes Service DNS 導向 Ready Pods。
+  KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
+  KUBERNETES_CARD_BASE_URL: "http://card:9000"
   # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
   CONFIGSERVER_OPTIONAL_PREFIX: ""
   SPRING_RABBITMQ_HOST: "host.docker.internal"

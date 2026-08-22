@@ -12,6 +12,8 @@ import com.example.account.mapper.CustomerMapper;
 import com.example.account.repository.AccountRepo;
 import com.example.account.repository.CustomerRepo;
 import com.example.account.service.client.CardFeignClient;
+import com.example.account.service.client.KubernetesCardFeignClient;
+import com.example.account.service.client.KubernetesLoanFeignClient;
 import com.example.account.service.client.LoanFeignClient;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,8 @@ public class ICustomerServiceImpl implements ICustomerService {
     private final CustomerRepo customerRepo;
     private final CardFeignClient cardFeignClient;
     private final LoanFeignClient loanFeignClient;
+    private final KubernetesCardFeignClient kubernetesCardFeignClient;
+    private final KubernetesLoanFeignClient kubernetesLoanFeignClient;
 
     @Override
     public CustomerAccLoanCardDetailDto fetchCustomerAccLoanCardDetailDto(String mobileNumber) {
@@ -54,6 +58,32 @@ public class ICustomerServiceImpl implements ICustomerService {
 
         // 5. 向 card 服務要信用卡資料
         detailDto.setCardDto(fetchCardOrNull(mobileNumber));
+
+        return detailDto;
+    }
+
+    /**
+     * 與 {@link #fetchCustomerAccLoanCardDetailDto(String)} 回傳相同資料，
+     * 但 loan / card 不查 Eureka，而是直接呼叫 Kubernetes Service DNS。
+     */
+    @Override
+    public CustomerAccLoanCardDetailDto fetchCustomerAccLoanCardDetailKubernetesDto(String mobileNumber) {
+        Customer customer = customerRepo.findByMobileNumber(mobileNumber)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Customer", "mobileNumber", mobileNumber)
+                );
+
+        Account account = accountRepo.findByCustomerId(customer.getCustomerId())
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Account", "customerId", customer.getCustomerId().toString())
+                );
+
+        CustomerAccLoanCardDetailDto detailDto = CustomerMapper.mapToCustomerAccLoanCardDetailDto(customer, new CustomerAccLoanCardDetailDto());
+        detailDto.setAccountDto(AccountMapper.mapToAccountDto(account, new AccountDto()));
+
+        // Feign 的 url 指向 K8s Service；Service selector 會在 Ready 的 loan / card Pods 間分流。
+        detailDto.setLoanDto(fetchKubernetesLoanOrNull(mobileNumber));
+        detailDto.setCardDto(fetchKubernetesCardOrNull(mobileNumber));
 
         return detailDto;
     }
@@ -87,6 +117,26 @@ public class ICustomerServiceImpl implements ICustomerService {
             return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有信用卡資料", mobileNumber);
+            return null;
+        }
+    }
+
+    private LoanDto fetchKubernetesLoanOrNull(String mobileNumber) {
+        try {
+            ResponseEntity<LoanDto> response = kubernetesLoanFeignClient.fetchLoanDetails(mobileNumber);
+            return (response != null) ? response.getBody() : null;
+        } catch (FeignException.NotFound e) {
+            log.info("客戶 {} 沒有貸款資料（Kubernetes Service 路徑）", mobileNumber);
+            return null;
+        }
+    }
+
+    private CardDto fetchKubernetesCardOrNull(String mobileNumber) {
+        try {
+            ResponseEntity<CardDto> response = kubernetesCardFeignClient.fetchCardDetails(mobileNumber);
+            return (response != null) ? response.getBody() : null;
+        } catch (FeignException.NotFound e) {
+            log.info("客戶 {} 沒有信用卡資料（Kubernetes Service 路徑）", mobileNumber);
             return null;
         }
     }

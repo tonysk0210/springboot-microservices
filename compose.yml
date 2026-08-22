@@ -349,6 +349,10 @@ services:
     environment:
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
 
+      # 直接 Service 對照路徑：Compose network 以 service key 作為 DNS 名稱。
+      KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
+      KUBERNETES_CARD_BASE_URL: "http://card:9000"
+
       # ⚠ 容器要走 INTERNAL listener（kafka:9092），本機走 EXTERNAL（localhost:29092）。
       #   兩者不能互換 —— broker 會回報自己的位址叫客戶端改連過去。
       #

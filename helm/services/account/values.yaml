@@ -19,6 +19,8 @@ configMap:
     JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
     CONFIGSERVER_HOST: "configserver"
     EUREKA_URL: "http://eurekaserver:8070/eureka/"
+    KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
+    KUBERNETES_CARD_BASE_URL: "http://card:9000"
     CONFIGSERVER_OPTIONAL_PREFIX: ""
     SPRING_RABBITMQ_HOST: "host.docker.internal"
     SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/accountdb"

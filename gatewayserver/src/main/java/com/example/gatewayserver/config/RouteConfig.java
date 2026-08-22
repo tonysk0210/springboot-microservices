@@ -22,6 +22,15 @@ public class RouteConfig {
     public RouteLocator bankRouteConfig(RouteLocatorBuilder builder) {
         return builder.routes()
 
+                // Kubernetes 對照路徑：不經 Eureka，直接交給 account Service 在叢集內選一個 Ready Pod。
+                // 例：/k8s/account/api/fetch-customerAccLoanCardDetail-k8s → account:8080/api/...
+                .route(p -> p
+                        .path("/k8s/account/**")
+                        .filters(f -> f
+                                .rewritePath("/k8s/account/(?<segment>.*)", "/${segment}")
+                                .addResponseHeader("X-Gateway-Discovery", "kubernetes-service"))
+                        .uri("http://account:8080"))
+
                 // /bank/account/api/fetch-account → /api/fetch-account
                 .route(p -> p
                         .path("/bank/account/**")
