@@ -1,0 +1,36 @@
+name: gatewayserver
+deploymentName: gatewayserver-deployment
+replicaCount: 1
+
+image:
+  repository: anthonysk/gatewayserver
+  tag: 0.0.1-SNAPSHOT
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 8072
+  targetPort: 8072
+
+configMap:
+  name: gatewayserver-config
+  data:
+    HOME: "/tmp"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    CONFIGSERVER_HOST: "configserver"
+    EUREKA_URL: "http://eurekaserver:8070/eureka/"
+    CONFIGSERVER_OPTIONAL_PREFIX: ""
+    SPRING_RABBITMQ_HOST: "host.docker.internal"
+    SPRING_DATA_REDIS_HOST: "host.docker.internal"
+    SPRING_PROFILES_ACTIVE: "auth"
+    KEYCLOAK_JWK_SET_URI: "http://host.docker.internal:7080/realms/master/protocol/openid-connect/certs"
+    OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+    MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 700Mi

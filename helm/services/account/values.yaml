@@ -1,0 +1,35 @@
+name: account
+deploymentName: account-deployment
+replicaCount: 1
+
+image:
+  repository: anthonysk/account
+  tag: 0.0.1-SNAPSHOT
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 8080
+  targetPort: 8080
+
+configMap:
+  name: account-config
+  data:
+    HOME: "/tmp"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    CONFIGSERVER_HOST: "configserver"
+    EUREKA_URL: "http://eurekaserver:8070/eureka/"
+    CONFIGSERVER_OPTIONAL_PREFIX: ""
+    SPRING_RABBITMQ_HOST: "host.docker.internal"
+    SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/accountdb"
+    SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
+    OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+    MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 700Mi

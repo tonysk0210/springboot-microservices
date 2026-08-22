@@ -1,0 +1,35 @@
+name: configserver
+deploymentName: configserver-deployment
+replicaCount: 1
+
+image:
+  repository: anthonysk/configserver
+  tag: 0.0.1-SNAPSHOT
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 8071
+  targetPort: 8071
+
+configMap:
+  name: configserver-config
+  data:
+    HOME: "/tmp"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    SPRING_RABBITMQ_HOST: "host.docker.internal"
+    MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+# Provide encryptKey only through a local, uncommitted values file when creating this Secret.
+secret:
+  create: false
+  name: configserver-secrets
+  encryptKey: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 700Mi
