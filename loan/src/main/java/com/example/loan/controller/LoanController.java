@@ -68,7 +68,12 @@ public class LoanController {
     @GetMapping("/fetch-loan")
     public ResponseEntity<LoanDto> fetchLoanDetails(@RequestParam
                                                     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
-                                                    String mobileNumber) {
+                                                    String mobileNumber,
+                                                    @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
+                                                    String loadBalancingSource) {
+        // HOSTNAME 是 Kubernetes Pod 名稱；header 是 Account 的兩組 Feign client 標記的分流來源。
+        log.info("分流觀測：貸款查詢由 Pod={} 處理，選擇來源={}",
+                System.getenv().getOrDefault("HOSTNAME", "local"), loadBalancingSource);
         // 2. 取得貸款資料
         LoanDto loanDto = loanService.fetchLoan(mobileNumber);
         return ResponseEntity

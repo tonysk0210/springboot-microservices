@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class CardFallback implements CardFeignClient {
 
     @Override
-    public ResponseEntity<CardDto> fetchCardDetails(String mobileNumber) {
+    public ResponseEntity<CardDto> fetchCardDetails(String mobileNumber, String loadBalancingSource) {
         log.warn("card 服務無法使用，信用卡資料以 null 回傳（mobileNumber={}）", mobileNumber);
         return ResponseEntity.ok(null);
     }

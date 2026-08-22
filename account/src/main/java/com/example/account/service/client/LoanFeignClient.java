@@ -5,6 +5,7 @@ import com.example.account.service.client.fallback.LoanFallback;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 /**
@@ -23,5 +24,7 @@ public interface LoanFeignClient {
     // ⚠ 路徑要完整，含 loan 那邊 @RequestMapping("/api") 的前綴 —— Feign 不會幫你補。
     // ⚠ @RequestParam 不可省略：Feign 會把「沒有註解的參數」當成請求 body，而 GET 不該有 body。
     @GetMapping("/api/fetch-loan")
-    ResponseEntity<LoanDto> fetchLoanDetails(@RequestParam String mobileNumber);
+    ResponseEntity<LoanDto> fetchLoanDetails(
+            @RequestParam String mobileNumber,
+            @RequestHeader("X-Load-Balancing-Source") String loadBalancingSource);
 }

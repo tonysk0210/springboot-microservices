@@ -4,6 +4,7 @@ import com.example.account.dto.CardDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 /**
@@ -17,5 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 public interface KubernetesCardFeignClient {
 
     @GetMapping("/api/fetch-card")
-    ResponseEntity<CardDto> fetchCardDetails(@RequestParam String mobileNumber);
+    ResponseEntity<CardDto> fetchCardDetails(
+            @RequestParam String mobileNumber,
+            @RequestHeader("X-Load-Balancing-Source") String loadBalancingSource);
 }

@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 public class LoanFallback implements LoanFeignClient {
 
     @Override
-    public ResponseEntity<LoanDto> fetchLoanDetails(String mobileNumber) {
+    public ResponseEntity<LoanDto> fetchLoanDetails(String mobileNumber, String loadBalancingSource) {
         // ⚠ 一定要 log —— 不然「loan 服務掛了」跟「客戶真的沒貸款」在 log 上
         //   長得一模一樣，都是安靜地回 null。
         log.warn("loan 服務無法使用，貸款資料以 null 回傳（mobileNumber={}）", mobileNumber);

@@ -1,6 +1,6 @@
 name: card
 deploymentName: card-deployment
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: anthonysk/card

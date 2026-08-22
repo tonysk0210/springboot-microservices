@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping(path = "/api", produces = {MediaType.APPLICATION_JSON_VALUE})
+@Slf4j
 public class CardController {
 
     private final ICardService cardService;
@@ -64,7 +66,12 @@ public class CardController {
     @GetMapping("/fetch-card")
     public ResponseEntity<CardDto> fetchCardDetails(@RequestParam
                                                     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
-                                                    String mobileNumber) {
+                                                    String mobileNumber,
+                                                    @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
+                                                    String loadBalancingSource) {
+        // HOSTNAME 是 Kubernetes Pod 名稱；header 是 Account 的兩組 Feign client 標記的分流來源。
+        log.info("分流觀測：卡片查詢由 Pod={} 處理，選擇來源={}",
+                System.getenv().getOrDefault("HOSTNAME", "local"), loadBalancingSource);
         CardDto cardDto = cardService.fetchCard(mobileNumber);
         return ResponseEntity
                 .status(HttpStatus.OK)

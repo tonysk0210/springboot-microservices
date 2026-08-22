@@ -101,7 +101,7 @@ public class ICustomerServiceImpl implements ICustomerService {
     // ─────────────────────────────────────────────────────────────────────────
     private LoanDto fetchLoanOrNull(String mobileNumber) {
         try {
-            ResponseEntity<LoanDto> response = loanFeignClient.fetchLoanDetails(mobileNumber);
+            ResponseEntity<LoanDto> response = loanFeignClient.fetchLoanDetails(mobileNumber, "eureka");
             // ⚠ 防 null：fallback 若被改成回 null 就會在這裡 NPE。
             //   自己防一手，不依賴別人怎麼寫 fallback。
             return (response != null) ? response.getBody() : null;
@@ -113,7 +113,7 @@ public class ICustomerServiceImpl implements ICustomerService {
 
     private CardDto fetchCardOrNull(String mobileNumber) {
         try {
-            ResponseEntity<CardDto> response = cardFeignClient.fetchCardDetails(mobileNumber);
+            ResponseEntity<CardDto> response = cardFeignClient.fetchCardDetails(mobileNumber, "eureka");
             return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有信用卡資料", mobileNumber);
@@ -123,7 +123,7 @@ public class ICustomerServiceImpl implements ICustomerService {
 
     private LoanDto fetchKubernetesLoanOrNull(String mobileNumber) {
         try {
-            ResponseEntity<LoanDto> response = kubernetesLoanFeignClient.fetchLoanDetails(mobileNumber);
+            ResponseEntity<LoanDto> response = kubernetesLoanFeignClient.fetchLoanDetails(mobileNumber, "kubernetes-service");
             return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有貸款資料（Kubernetes Service 路徑）", mobileNumber);
@@ -133,7 +133,7 @@ public class ICustomerServiceImpl implements ICustomerService {
 
     private CardDto fetchKubernetesCardOrNull(String mobileNumber) {
         try {
-            ResponseEntity<CardDto> response = kubernetesCardFeignClient.fetchCardDetails(mobileNumber);
+            ResponseEntity<CardDto> response = kubernetesCardFeignClient.fetchCardDetails(mobileNumber, "kubernetes-service");
             return (response != null) ? response.getBody() : null;
         } catch (FeignException.NotFound e) {
             log.info("客戶 {} 沒有信用卡資料（Kubernetes Service 路徑）", mobileNumber);

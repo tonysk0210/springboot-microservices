@@ -1,4 +1,6 @@
 {
+  "loan": "sha256:2cf1c14ae74d71d4ee82a1258e076b301c16e74662c238bd7b10bafe2982740a",
   "gatewayserver": "sha256:67393fb8dd2542532effe94b8fca9ae6ea052cbac2584e2d92b32b6cdb66b7e5",
-  "account": "sha256:3a0ddbed58a64463cf4e0d18b2e54d42c5bae773b9bf19c084d75f41d7afb286"
+  "account": "sha256:32925c5dbd38b571cd99bb2ff982d6b9b9fecda9b8a1e5a5b5b06acd71d17bc3",
+  "card": "sha256:f66777df0d793d5cbfa4edca53901d8256f55d5429fea13278afe5f71120417a"
 }
