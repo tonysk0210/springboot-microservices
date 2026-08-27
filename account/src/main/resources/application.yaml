@@ -6,9 +6,7 @@ logging:
     org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
-    # （兩者都只涵蓋啟動階段。API 執行的 SQL 靠下面這行）
-    # API 執行的 SQL。取代 spring.jpa.show-sql —— 走 logger 才有時間、執行緒、追蹤 ID。
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: DEBUG # Hibernate 印出 SQL（含參數）—— 方便對照資料表結構與資料
 
     # Feign 呼叫的完整請求／回應。⚠ 必須是 DEBUG —— Feign 的 log 只在這個層級輸出，
     #   而且 logger 名稱是「介面所在的套件」，不是 feign.* 這種函式庫名稱。
@@ -31,6 +29,23 @@ spring:
   #   對不上時 Config Server 回「200 + 空設定」而不是 404，服務照常啟動但拿到 null。
   application:
     name: account
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/accountdb}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:root}
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:/sql/schema.sql # 啟動時建表，schema.sql 只建表結構，不塞資料
+
+  jpa:
+    hibernate:
+      ddl-auto: validate # 啟動時驗表，Entity 與資料表對不對得上
+    properties:
+      hibernate:
+        format_sql: true # Hibernate 印出 SQL 時自動換行、縮排，方便對照資料表結構與資料
 
   # 啟動時去 Config Server 抓設定，疊在本檔案之上（同名 key 遠端贏；
   # 但環境變數又贏過遠端，所以 compose 的 environment: 可以當除錯後門）。
@@ -238,39 +253,8 @@ spring:
   kafka:
     bootstrap-servers: localhost:29092
 
-  datasource:
-    # 🔑 IntelliJ 和容器連的是「同一台 MySQL 的同一個 database」——
-    #    只有走進去的路不同：
-    #        IntelliJ  localhost:3306   ← 走 compose 發布出來的 port
-    #        容器      mysql:3306       ← 走 compose 內部網路（服務名 = DNS 名）
-    #    所以用 IntelliJ 建的資料，切成容器照樣查得到。
-    #
-    # ⚠ 刻意「不寫」driverClassName —— Spring Boot 從 jdbc:mysql:// 自己推斷。
-    #   寫死的話換資料庫時很容易改漏（這正是換掉 H2 時踩到的第一個坑）。
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/accountdb}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:root}
 
-  jpa:
-    # ⚠ 不要寫死 database-platform（例如 H2Dialect）—— Hibernate 會依實際連線
-    #   自動選方言，寫死會導致換 Postgres 時用錯語法。
-    hibernate:
-      ddl-auto: validate   # 只驗證 Entity 與資料表是否相符，不自動改結構
 
-    # ⚠ 刻意「不用 show-sql: true」—— 那個是 Hibernate 直接 System.out.println，
-    #   完全不經過 logback，所以印出來的 SQL 沒有時間、沒有執行緒、也沒有追蹤 ID。
-    #   改用上面 logging.level 的 org.hibernate.SQL: DEBUG，走 logger 才吃得到 pattern。
-    show-sql: false
-    properties:
-      hibernate:
-        format_sql: true
-
-  sql:
-    init:
-      # ⚠ 檔案模式的 H2 不算「內嵌資料庫」，所以預設的 embedded 不會執行，
-      #   必須用 always。schema.sql 是 CREATE TABLE IF NOT EXISTS，重複執行安全。
-      mode: always
-      schema-locations: classpath:/sql/schema.sql
 
 # =============================================================================
 #  Eureka Client —— 向註冊中心報到

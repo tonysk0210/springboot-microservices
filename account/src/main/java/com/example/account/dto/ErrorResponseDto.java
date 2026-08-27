@@ -3,6 +3,7 @@ package com.example.account.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.springframework.http.HttpStatus;
 
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
 @Schema(description = "錯誤回應")
 @Data
 @AllArgsConstructor
+@NoArgsConstructor
 public class ErrorResponseDto {
 
     @Schema(description = "發生錯誤的 API 路徑", example = "uri=/api/fetch-account")

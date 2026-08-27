@@ -8,5 +8,5 @@ import java.util.Optional;
 
 @Repository
 public interface CustomerRepo extends JpaRepository<Customer, Integer> {
-    Optional<Customer> findByMobileNumber(String mobileNumber); // Derived query method
+    Optional<Customer> findByMobileNumber(String mobileNumber);
 }
