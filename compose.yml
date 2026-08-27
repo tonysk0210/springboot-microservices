@@ -112,11 +112,14 @@ services:
     command: [ "--innodb-buffer-pool-size=64M" ]
 
     volumes:
+      # MySQL 真正的資料檔放在 named volume；只要它還在，這就是既有資料庫。
       - "mysql-data:/var/lib/mysql"
-      # 建立三個 database 的腳本。
-      # ⚠ MySQL image 「只在資料目錄是空的時候」跑這個資料夾裡的檔案 ——
-      #   也就是第一次啟動、或 mysql-data volume 被刪掉之後。
-      #   之後改腳本不會有任何效果，新加的 database 一直不出現。
+      # Compose 把本機 ./mysql/init 掛載成 container 內的
+      # /docker-entrypoint-initdb.d（ro = 容器只能讀，不能改主機上的腳本）。
+      # MySQL 官方 image 的 entrypoint 在「資料目錄為空」的首次啟動時，會掃描
+      # 這個固定路徑，按檔名順序執行其中的 .sql / .sh；因此 01-create-databases.sql
+      # 會建立三個 database。mysql-data 已有資料時，entrypoint 會跳過整個初始化
+      # 步驟來保護既有資料，所以之後改腳本或新增 database 都不會自動生效。
       - "./mysql/init:/docker-entrypoint-initdb.d:ro"
 
     healthcheck:
