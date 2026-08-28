@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 @Setter
 @ToString
 @MappedSuperclass
-@EntityListeners(AuditingEntityListener.class)
+@EntityListeners(AuditingEntityListener.class) // 指定這個 Entity 要接受 auditing 監聽
 public class BaseEntity {
 
     @Column(updatable = false, nullable = false)
