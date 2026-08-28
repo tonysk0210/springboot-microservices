@@ -44,10 +44,6 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-stream-binder-kafka</artifactId>
         </dependency>
-        <!-- MySQL 的 JDBC driver。版本由 Boot 的 BOM 管，不用寫。
-             ⚠ scope 是 runtime —— 程式碼不該 import driver 類別，只有 JVM 執行期要載入它。
-             🔑 application.yaml 刻意「不寫」driverClassName —— Spring Boot 會從連線字串
-                jdbc:mysql://... 推斷出來。少一個換資料庫時容易改漏的地方。 -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>

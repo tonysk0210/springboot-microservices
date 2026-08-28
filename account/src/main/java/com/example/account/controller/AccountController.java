@@ -89,7 +89,9 @@ public class AccountController {
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
     })
     @PutMapping("/update-account")
-    public ResponseEntity<ResponseDto> updateAccountDetails(@RequestBody @Valid CustomerDto customerDto) {
+    public ResponseEntity<ResponseDto> updateAccountDetails(@RequestBody
+                                                            @Valid
+                                                            CustomerDto customerDto) {
 
         // 1. 更新帳號資料
         boolean isUpdated = accountService.updateAccount(customerDto);
