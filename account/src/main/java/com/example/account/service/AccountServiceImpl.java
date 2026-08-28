@@ -22,7 +22,6 @@ import java.util.Random;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)                                       // ← 預設 readOnly，讀取方法自動繼承
 public class AccountServiceImpl implements IAccountService {
 
     private final AccountRepo accountRepo;

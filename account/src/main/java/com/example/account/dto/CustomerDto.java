@@ -1,6 +1,7 @@
 package com.example.account.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -28,5 +29,6 @@ public class CustomerDto {
     private String mobileNumber;
 
     @Schema(description = "此客戶的帳戶資料")
+    @Valid // 確保 AccountDto 內的欄位也會被驗證
     private AccountDto accountDto;
 }

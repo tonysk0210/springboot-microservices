@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class ICustomerServiceImpl implements ICustomerService {
+public class CustomerServiceImpl implements ICustomerService {
 
     private final AccountRepo accountRepo;
     private final CustomerRepo customerRepo;
