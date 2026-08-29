@@ -20,16 +20,15 @@ import java.util.stream.Collectors;
 
 /**
  * 全域例外處理器：把例外統一轉成 ErrorResponseDto JSON 回應。
- *
- * <p>繼承 ResponseEntityExceptionHandler 以接管 Spring MVC 內建的 20 種例外（405、415、400、404…），
- * 它們都會流經 handleExceptionInternal。要客製其中一種請用 @Override，不可用 @ExceptionHandler（會啟動失敗）。
+ * 繼承 ResponseEntityExceptionHandler，讓 Spring MVC 的常見錯誤（例如驗證失敗、
+ * 不支援的 HTTP 方法）也能統一回傳本專案的 ErrorResponseDto 格式，不必每種錯誤都自己處理。
  */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
-     * 父類 20 種內建例外的共同出口：統一改成 ErrorResponseDto 格式
+     * Spring MVC 發生常見錯誤時會呼叫這裡，再統一改成 ErrorResponseDto 回傳。
      */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception exception,
@@ -38,9 +37,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                              HttpStatusCode status,
                                                              WebRequest webRequest) {
 
-        // 1. 保留父類的保護：回應已送出就不要再寫，否則會拋 IllegalStateException
+        // 前置：HTTP 回應已送出時不能再修改，直接停止處理。
         if (webRequest instanceof ServletWebRequest servletWebRequest) {
-            // 取得 HttpServletResponse 以檢查回應是否已送出
+            // 取得目前的 HTTP response，檢查是否已送出。
             HttpServletResponse response = servletWebRequest.getResponse();
             if (response != null && response.isCommitted()) {
                 log.warn("回應已送出，忽略此例外: {}", exception.toString());
@@ -48,9 +47,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             }
         }
 
+        // 1. 將例外整理成可回傳給 client 的易讀錯誤訊息。
         String message = extractMessage(exception);
 
-        // 2. 分級記錄：4xx 是客戶端送錯，用 warn 不印堆疊；5xx 是系統問題，用 error 並帶完整堆疊
+        // 2. 印 log - 4xx 是 client 的 request 有問題；5xx 才印出完整錯誤堆疊以便除錯。
         if (status.is5xxServerError()) {
             log.error("MVC 例外 [{}] at [{}]: {}",
                     status, webRequest.getDescription(false), message, exception);
@@ -66,20 +66,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 message,
                 LocalDateTime.now()
         );
+
         return new ResponseEntity<>(errorResponseDTO, headers, status);
     }
 
     /**
-     * 驗證類例外的 getMessage() 太冗長或只有固定字串，改抽出各欄位的 defaultMessage
+     * 將驗證例外轉成易讀的欄位錯誤訊息。
      */
     private String extractMessage(Exception exception) {
-        // @Valid @RequestBody 驗證失敗
+        // Request body DTO 驗證失敗。
         if (exception instanceof MethodArgumentNotValidException ex) {
             return ex.getBindingResult().getFieldErrors().stream()
                     .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                     .collect(Collectors.joining("; "));
         }
-        // @RequestParam / @PathVariable 上的驗證註解未通過
+        // Request param 或 path variable 驗證失敗。
         if (exception instanceof HandlerMethodValidationException ex) {
             return ex.getParameterValidationResults().stream()
                     .flatMap(validationResult -> {
@@ -93,12 +94,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * 400：業務規則違反 — 手機號碼已註冊
+     * 此手機號碼已有卡片紀錄 - 400 Bad Request
      */
     @ExceptionHandler(CardAlreadyExistsException.class)
     public ResponseEntity<ErrorResponseDto> handleCardAlreadyExistsException(CardAlreadyExistsException exception,
                                                                              WebRequest webRequest) {
-        // 預期內的業務結果，記 warn 不印堆疊
+        // 預期的 client error，不需印出 stack trace。
         log.warn("業務規則違反 at [{}]: {}", webRequest.getDescription(false), exception.getMessage());
 
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
@@ -111,12 +112,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * 404：資料庫查無資源
+     * 找不到指定資源 - 404 Not Found
      */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ErrorResponseDto> handleResourceNotFoundException(ResourceNotFoundException exception,
                                                                             WebRequest webRequest) {
-        // 預期內的業務結果，記 warn 不印堆疊
+        // 預期的 client error，不需印出 stack trace。
         log.warn("查無資源 at [{}]: {}", webRequest.getDescription(false), exception.getMessage());
 
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(
@@ -129,12 +130,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * 500：catch-all；log 完整例外，只回通用訊息避免洩漏內部細節
+     * 處理未預期的系統錯誤 - 500 Internal Server Error
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleGlobalException(Exception exception,
                                                                   WebRequest webRequest) {
-        log.error("未處理 exception at [{}]: {}",
+        log.error("其餘未被處理的 exception at [{}]: {}",
                 webRequest.getDescription(false), exception.getMessage(), exception);
 
         ErrorResponseDto errorResponseDTO = new ErrorResponseDto(

@@ -391,6 +391,15 @@ services:
     # image 是 Buildpacks 產的：cd loan && ./mvnw spring-boot:build-image
     image: anthonysk/loan:0.0.1-SNAPSHOT
     container_name: loan-ms
+
+    # ⚠ container_name 「不會」改到容器的 hostname —— Docker 預設把 hostname 設成
+    #   容器 ID 的前 12 碼，而且會注入成環境變數 HOSTNAME。
+    #   LoanController 的分流觀測 log 印的就是它，不設的話會變成：
+    #       分流觀測：貸款查詢由 Pod=1aea091aae11 處理，選擇來源=eureka
+    #   加了這行才看得懂是誰處理的。
+    # 🔑 K8s 那邊不用設 —— kubelet 會把 Pod 名稱當 hostname，本來就是可讀的。
+    hostname: loan-ms
+
     ports:
       - "8090:8090"
     extends:
@@ -448,6 +457,11 @@ services:
     # image 是 Jib 產的：cd card && ./mvnw compile jib:dockerBuild
     image: anthonysk/card:0.0.1-SNAPSHOT
     container_name: card-ms
+
+    # 同 loan：讓 CardController 的分流觀測 log 印出服務名而不是容器短 ID。
+    # 完整說明見 loan 那段。
+    hostname: card-ms
+
     ports:
       - "9000:9000"
     extends:

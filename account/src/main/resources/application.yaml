@@ -3,10 +3,10 @@ server:
 
 logging:
   level:
-    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
-    org.hibernate.SQL: DEBUG # Hibernate 印出 SQL（含參數）—— 方便對照資料表結構與資料
+    org.hibernate.SQL: DEBUG                          # Hibernate 印出 SQL（含參數）—— 方便對照資料表結構與資料
+    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
 
     # Feign 呼叫的完整請求／回應。⚠ 必須是 DEBUG —— Feign 的 log 只在這個層級輸出，
     #   而且 logger 名稱是「介面所在的套件」，不是 feign.* 這種函式庫名稱。

@@ -1,11 +1,11 @@
 package com.example.card.controller;
 
-import com.example.card.dto.CardContactInfoDto;
 import com.example.card.dto.CardDto;
 import com.example.card.dto.ErrorResponseDto;
 import com.example.card.dto.ResponseDto;
 import com.example.card.service.ICardService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -31,9 +31,6 @@ import org.springframework.web.bind.annotation.*;
 public class CardController {
 
     private final ICardService cardService;
-
-    // 由 @ConfigurationProperties 綁好的設定 bean，內容來自 Config Server 的 config/card.yml
-    private final CardContactInfoDto cardContactInfoDto;
 
     @Operation(summary = "建立卡片", description = "以手機號碼建立一張卡片，卡號自動產生")
     @ApiResponses({
@@ -61,15 +58,20 @@ public class CardController {
             @ApiResponse(responseCode = "400", description = "手機號碼格式不正確",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "查無此手機號碼的卡片紀錄",
-                    content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
+                    content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
+            @ApiResponse(responseCode = "417", description = "卡片刪除失敗",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class)))
     })
     @GetMapping("/fetch-card")
     public ResponseEntity<CardDto> fetchCardDetails(@RequestParam
                                                     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
                                                     String mobileNumber,
+                                                    // Account 用 Feign 呼叫時會帶這個 header；瀏覽器或 Postman 直接打沒有，就用預設值 direct
+                                                    @Parameter(description = "上游 Account 標示的分流來源", example = "eureka") // Swagger UI 的說明文字
                                                     @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
                                                     String loadBalancingSource) {
-        // HOSTNAME 是 Kubernetes Pod 名稱；header 是 Account 的兩組 Feign client 標記的分流來源。
+        // 觀測用：這次是「哪台」處理、請求「走哪條路」進來的。
+        // HOSTNAME：K8s 是 Pod 名稱、Docker 是容器短 ID（compose 加 hostname: 就變成服務名）、IntelliJ 沒這個變數就印 local。
         log.info("分流觀測：卡片查詢由 Pod={} 處理，選擇來源={}",
                 System.getenv().getOrDefault("HOSTNAME", "local"), loadBalancingSource);
         CardDto cardDto = cardService.fetchCard(mobileNumber);
@@ -128,18 +130,4 @@ public class CardController {
         }
     }
 
-    @Operation(
-            summary = "查詢服務設定資訊",
-            description = "回傳 card.* 這組設定的實際生效值。設定來自 Config Server 的 "
-                    + "config/card.yml；若 Config Server 沒開（本專案用 optional: 前綴，"
-                    + "抓不到不會啟動失敗），本地 application.yaml 沒有這組值，欄位會是 null。"
-    )
-    @ApiResponse(responseCode = "200", description = "查詢成功",
-            content = @Content(schema = @Schema(implementation = CardContactInfoDto.class)))
-    @GetMapping("/contact-info")
-    public ResponseEntity<CardContactInfoDto> getContactInfo() {
-        return ResponseEntity
-                .status(HttpStatus.OK)
-                .body(cardContactInfoDto);
-    }
 }

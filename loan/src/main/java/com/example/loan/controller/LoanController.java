@@ -2,10 +2,10 @@ package com.example.loan.controller;
 
 
 import com.example.loan.dto.ErrorResponseDto;
-import com.example.loan.dto.LoanContactInfoDto;
 import com.example.loan.dto.LoanDto;
 import com.example.loan.dto.ResponseDto;
 import com.example.loan.service.ILoanService;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -33,9 +33,6 @@ public class LoanController {
 
     private final ILoanService loanService;
 
-    // 由 @ConfigurationProperties 綁好的設定 bean，內容來自 Config Server 的 config/loan.yml
-    private final LoanContactInfoDto loanContactInfoDto;
-
     @Operation(summary = "建立貸款", description = "以手機號碼建立一筆貸款，貸款編號自動產生")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "貸款建立成功",
@@ -56,7 +53,7 @@ public class LoanController {
                         "貸款建立成功"));
     }
 
-    @Operation(summary = "查詢貸款", description = "以手機號碼查詢貸款資料")
+    @Operation(summary = "查詢貸款", description = "以手機號碼查詢貸款資料；可由 Account 透過 Feign 呼叫。")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "查詢成功",
                     content = @Content(schema = @Schema(implementation = LoanDto.class))),
@@ -69,12 +66,15 @@ public class LoanController {
     public ResponseEntity<LoanDto> fetchLoanDetails(@RequestParam
                                                     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
                                                     String mobileNumber,
+                                                    // Account 用 Feign 呼叫時會帶這個 header；瀏覽器或 Postman 直接打沒有，就用預設值 direct
+                                                    @Parameter(description = "上游 Account 標示的分流來源", example = "eureka") // Swagger UI 的說明文字
                                                     @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
                                                     String loadBalancingSource) {
-        // HOSTNAME 是 Kubernetes Pod 名稱；header 是 Account 的兩組 Feign client 標記的分流來源。
+        // 觀測用：這次是「哪台」處理、請求「走哪條路」進來的。
+        // HOSTNAME：K8s 是 Pod 名稱、Docker 是容器短 ID（compose 加 hostname: 就變成服務名）、IntelliJ 沒這個變數就印 local。
         log.info("分流觀測：貸款查詢由 Pod={} 處理，選擇來源={}",
                 System.getenv().getOrDefault("HOSTNAME", "local"), loadBalancingSource);
-        // 2. 取得貸款資料
+
         LoanDto loanDto = loanService.fetchLoan(mobileNumber);
         return ResponseEntity
                 .status(HttpStatus.OK)
@@ -114,7 +114,9 @@ public class LoanController {
             @ApiResponse(responseCode = "400", description = "手機號碼格式不正確",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "查無此手機號碼的貸款紀錄",
-                    content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
+                    content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
+            @ApiResponse(responseCode = "417", description = "貸款刪除失敗",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class)))
     })
     @DeleteMapping("/delete-loan")
     public ResponseEntity<ResponseDto> deleteLoanDetails(@RequestParam
@@ -131,23 +133,6 @@ public class LoanController {
                     .status(HttpStatus.EXPECTATION_FAILED)
                     .body(new ResponseDto(HttpStatus.EXPECTATION_FAILED.toString(), "貸款刪除失敗"));
         }
-    }
-
-    @Operation(
-            summary = "查詢服務設定資訊",
-            description = "回傳 loan.* 這組設定的實際生效值。設定來自 Config Server 的 "
-                    + "config/loan.yml；若 Config Server 沒開（本專案用 optional: 前綴，"
-                    + "抓不到不會啟動失敗），本地 application.yaml 沒有這組值，欄位會是 null。"
-    )
-    @ApiResponse(responseCode = "200", description = "查詢成功",
-            content = @Content(schema = @Schema(implementation = LoanContactInfoDto.class)))
-    @GetMapping("/contact-info")
-    public ResponseEntity<LoanContactInfoDto> getContactInfo() {
-        log.info("測試 retry 呼叫 contact-info");
-        // throw new RuntimeException("測試 retry 呼叫 contact-info"); // 測試 retry 机制
-        return ResponseEntity
-                .status(HttpStatus.OK)
-                .body(loanContactInfoDto);
     }
 
 }

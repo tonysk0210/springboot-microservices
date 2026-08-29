@@ -7,13 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 /**
- * 對應 Config Server 上 config/account.yml 裡 account.* 那一組設定。
- * <p>
- * 欄位名不必跟 YAML 的 kebab-case 一致，relaxed binding 會自動對應：
- * contact-details → contactDetails、on-call-support → onCallSupport。
- * <p>
- * ⚠ 刻意用「可變 class + Lombok setter」而不是 record。record 走建構子綁定，
- * 不可變物件無法被就地重新填值，/actuator/refresh 動態刷新對它不會生效。
+ * 對應 Config Server 從 Git configyml/account.yml 載入的 account.* 設定。
  */
 @Schema(description = "由 Config Server 注入的設定資訊")
 @Data

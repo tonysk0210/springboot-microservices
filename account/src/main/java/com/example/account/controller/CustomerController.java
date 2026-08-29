@@ -45,8 +45,8 @@ public class CustomerController {
             @ApiResponse(responseCode = "404", description = "查無此手機號碼的客戶或帳戶",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
     })
-    @GetMapping("/fetch-customerAccLoanCardDetail")
-    public ResponseEntity<CustomerAccLoanCardDetailDto> fetchCustomerAccLoanCardDetail(@RequestParam
+    @GetMapping("/fetch-customerAccLoanCardDetail-eureka")
+    public ResponseEntity<CustomerAccLoanCardDetailDto> fetchCustomerAccLoanCardDetailEureka(@RequestParam
                                                                                        @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
                                                                                        String mobileNumber) {
 
