@@ -45,11 +45,6 @@
             <artifactId>spring-cloud-stream-binder-kafka</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
@@ -76,11 +71,16 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- OpenAPI + Swagger UI 整合套件；3.x 對應 Spring Boot 4.x（2.x 只支援 Boot 3.x）http://localhost:8080/swagger-ui/index.html -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- OpenAPI + Swagger UI 整合套件；http://localhost:8080/swagger-ui/index.html -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.0.3</version>
+            <version>3.1.0</version>
         </dependency>
         <!-- Config Client —— 啟動時向 Config Server 拿 configyml/account.yml
              （檔名 = spring.application.name），並帶進 /actuator/refresh。

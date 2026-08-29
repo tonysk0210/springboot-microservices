@@ -17,7 +17,7 @@ import java.util.List;
  */
 @Schema(description = "由 Config Server 注入的設定資訊")
 @Data
-@ConfigurationProperties(prefix = "account")
+@ConfigurationProperties(prefix = "account") // 這個 prefix 對應 config/account.yml 裡的 account: 開頭的那一組設定
 public class AccountContactInfoDto {
 
     @Schema(description = "服務歡迎訊息", example = "歡迎使用帳戶相關 API（來自 configserver / classpath）")
