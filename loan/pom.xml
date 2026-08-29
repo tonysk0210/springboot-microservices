@@ -152,60 +152,24 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <!--
-                        Buildpacks：不用自己寫 Dockerfile，Maven 幫你把 image 建好。
-                            指令：./mvnw spring-boot:build-image
-                        這一段設定只有那個指令會讀。docker build 走的是 Dockerfile，
-                        完全不會看 pom.xml。
+                    <!-- Buildpacks 由 Maven 自動建立 image，不需要 Dockerfile。
+                         BP_* 是建置設定；BPE_* 是 container 啟動時的預設環境變數。
+                         JVM 記憶體設定見 compose.yml 的 BPL_JVM_THREAD_COUNT。
 
-                        下面 env 裡的兩種前綴，意思差很多：
-                            BP_*   給「建 image 的時候」用，建完就沒了，容器裡看不到
-                            BPE_*  給「容器跑起來的時候」用，等於 Dockerfile 的 ENV
-                                   名字帶 DEFAULT 的（BPE_DEFAULT_XXX）表示只是預設值，
-                                   docker run -e 或 compose 的 environment 都蓋得掉
-
-                        ⚠ 用 docker image inspect 看不到 BPE_* 設的變數，很容易以為沒生效。
-                          它不是存在 image 的 metadata 裡，而是被寫成一段啟動腳本，
-                          容器跑起來才載入。想確認有沒有生效要看 log：
-                              docker logs loan | Select-String "jdbc:h2"
-
-                        ⚠ Paketo 會自己算 JVM 該用多少記憶體，而且會蓋掉我們設的
-                          MaxRAMPercentage。在 700m 的上限下它只分 46MB 給 heap，
-                          服務啟動到一半就會 OOM 死掉。
-                          解法寫在 compose.yml：調低 BPL_JVM_THREAD_COUNT，把記憶體讓回給 heap。
-                    -->
+                         .\mvnw spring-boot:build-image -Dmaven.test.skip=true：只建立本機 image。
+                         再加 -Dspring-boot.build-image.publish=true：建立後直接推送到 registry。
+                         maven.test.skip=true 表示略過測試。 -->
                     <image>
                         <name>anthonysk/${project.artifactId}:${project.version}</name>
 
-                        <!--
-                            Buildpacks 產出的 image = builder（建置環境）+ run image（執行環境）。
-                            預設的 run image 是 ubuntu-noble-run-tiny，走 distroless 路線，
-                            裡面「只有 JRE 和憑證」—— 連 /bin/sh、wget、curl 都沒有。
-                            後果：docker exec 進不去除錯，compose 也做不了 healthcheck
-                            （healthcheck 是在容器裡執行指令，沒有執行檔就什麼都跑不了）。
-
-                            換成 base 版本，多了 bash 和一般 Ubuntu 的基本工具。
-                            ⚠ 要跟 builder 同一條線 —— builder 是 builder-noble-java-tiny，
-                              所以 run image 也要挑 noble 的，混用 jammy 會失敗。
-                            ⚠ base 仍然「沒有」wget 和 curl（實測過），所以 healthcheck 不能
-                              照抄其他服務的寫法，要改用 bash 的 /dev/tcp。寫法在 compose.yml。
-                            ⚠ 代價：基底從 10MB 變成 62MB。想連 curl 都要有就用
-                              paketobuildpacks/run-noble-full，但那個大很多。
-                        -->
+                        <!-- runImage 是 container 的執行環境，必須與 builder 的 Noble 系列相容。
+                             使用 base 是為了讓 Compose healthcheck 可以使用 bash；因此 image 會比 tiny 版本大。 -->
                         <runImage>paketobuildpacks/run-noble-base:latest</runImage>
 
                         <env>
-                            <!-- ⚠ 寫「容器內的」位址而不是 localhost —— 容器裡的 localhost 是它自己。
-                                 application.yaml 的預設值是 localhost:3306（給 IntelliJ 用的）。 -->
+                            <!-- 容器內透過 Docker DNS 使用 mysql；localhost 只適用本機 IntelliJ。 -->
                             <BPE_DEFAULT_SPRING_DATASOURCE_URL>jdbc:mysql://mysql:3306/loandb</BPE_DEFAULT_SPRING_DATASOURCE_URL>
-                            <!-- BP_OCI_* 會變成 image 上的標籤（label），純粹是給人看的資訊，
-                                 不影響程式執行。推到 ghcr.io 之後，GitHub 的 package 頁面
-                                 就是靠它顯示描述。
-
-                                 🔑 為什麼 account 那邊還要多寫一串 annotation 參數？
-                                    因為兩者產出的 image 格式不一樣：Buildpacks 產的是舊格式，
-                                    GitHub 讀得懂上面的 label；account 用 buildx 產的是新格式，
-                                    GitHub 只認 annotation，不會退回去讀 label。 -->
+                            <!-- BP_OCI_* 只提供 image metadata，不影響程式執行。 -->
                             <BP_OCI_TITLE>loan-service</BP_OCI_TITLE>
                             <BP_OCI_DESCRIPTION>貸款資料的 REST API</BP_OCI_DESCRIPTION>
                             <BP_OCI_AUTHORS>Tony Shangkuan</BP_OCI_AUTHORS>

@@ -169,40 +169,17 @@
                 <artifactId>jib-maven-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
-                    <!--
-                        Jib 建 image（不必寫 Dockerfile）：
-                            ./mvnw compile jib:dockerBuild   建到本機 Docker
-                            ./mvnw compile jib:build         直接推 registry（不需要 Docker）
-                            ./mvnw compile jib:buildTar      產生 tar 檔
-
-                        jib:build 不經過 Docker daemon —— 它在 JVM 裡組出 image 的層直接
-                        上傳，所以 CI 環境不必跑 Docker in Docker。
-
-                        ⚠ compile 不能省，Jib 不會自己編譯（spring-boot:build-image 會）。
-                          漏掉的錯誤訊息是 Obtaining project build output files failed。
-
-                        ⚠ <to> 的名稱要帶命名空間。只寫 myimage 會被解析成
-                          docker.io/library/myimage:latest，library 是 Docker Hub 官方
-                          命名空間，沒有權限 push。
-
-                        <container> 等同 Dockerfile 的 EXPOSE / ENV / USER。
-                    -->
+                    <!-- Jib 不需要 Dockerfile：
+                         compile jib:dockerBuild 建到本機 Docker；
+                         compile jib:build 直接推送 registry；
+                         compile jib:buildTar 產生 tar 檔。
+                         compile 不能省，因為 Jib 不會自行編譯程式。
+                         <to> 應包含有權限的 namespace；<container> 對應 Dockerfile 的
+                         EXPOSE、ENV 與 USER。 -->
                     <from>
-                        <!-- 基底 image。
-
-                             為什麼要自己指定：不寫的話 Jib 會自己猜一個，但 3.5.2 比
-                             Java 25 舊，可能猜錯。而且指定成跟 account 的 Dockerfile
-                             一樣，兩個容器裡的環境才一致（都有 wget，compose 的
-                             healthcheck 才用得了）。
-
-                             docker:// 的意思是「用本機 Docker 已經有的那份，不要去網路抓」。
-                             ⚠ 不加這個前綴的話，Jib 會連去 Docker Hub，順便套用 Docker
-                               Desktop 存的登入憑證。那份憑證如果過期了就會失敗，訊息是
-                               incorrect username or password —— 但這個 image 明明是公開的、
-                               根本不用登入，錯誤訊息會害你往帳號密碼的方向查。
-
-                             ⚠ 用 docker:// 的前提是本機真的有這個 image：
-                                 docker pull eclipse-temurin:25-jre-alpine -->
+                        <!-- 使用與其他服務一致的 Java 基底 image。
+                             docker:// 表示直接使用本機已有的 image；執行前請先確認：
+                             docker pull eclipse-temurin:25-jre-alpine -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
                     <to>
@@ -213,16 +190,11 @@
                             <port>9000</port>
                         </ports>
                         <environment>
-                            <!-- ⚠ 寫「容器內的」位址而不是 localhost —— 容器裡的 localhost 是它自己。
-                                 application.yaml 的預設值是 localhost:3306（給 IntelliJ 用的）。 -->
+                            <!-- 容器內使用 Docker DNS 找到 mysql；localhost 僅適用本機 IntelliJ。 -->
                             <SPRING_DATASOURCE_URL>jdbc:mysql://mysql:3306/carddb</SPRING_DATASOURCE_URL>
                         </environment>
                         <user>nobody</user>
-                        <!-- OCI image label（純 metadata），ghcr.io 的 package 頁面靠它
-                             顯示描述。
-                             🔑 Jib 產的是 Docker v2 manifest，GitHub 讀得到 config label；
-                                account 用 buildx 產 OCI manifest，GitHub 只讀 manifest
-                                annotation，所以那邊要額外設定。 -->
+                        <!-- labels 是 image metadata，只用於 registry 顯示，不影響程式執行。 -->
                         <labels>
                             <org.opencontainers.image.title>card-service</org.opencontainers.image.title>
                             <org.opencontainers.image.description>卡片資料的 REST API</org.opencontainers.image.description>
