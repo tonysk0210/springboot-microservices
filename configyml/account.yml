@@ -1,30 +1,10 @@
-# =============================================================================
-#  account.yml —— Config Server 發給 account 服務的設定
-# =============================================================================
-#
-#  ⚠ 檔名不能隨便取！必須等於客戶端的 spring.application.name
-#      account/src/main/resources/application.yaml → spring.application.name: account
-#      所以這個檔案就得叫 account.yml
-#    名字對不上不會報錯，只會「什麼都拿不到」，而且沒有任何提示 —— 最難查的一種錯。
-#
-#  取得方式（configserver 跑起來後直接用瀏覽器開）：
-#      http://localhost:8071/account/default      ← JSON 格式，看得到來源檔案路徑
-#      http://localhost:8071/account-default.yml  ← YAML 格式，比較好讀
-#      http://localhost:8071/account/qa           ← 會同時回 account.yml + account-qa.yml
-#
-#  ---------------------------------------------------------------------------
-#  這裡故意放三種結構，用來體會「為什麼不是所有設定都適合用環境變數」：
-#
-#    單純字串   message              → 環境變數也很好處理
-#    巢狀物件   contact-details.*    → 環境變數要寫成 ACCOUNT_CONTACTDETAILS_NAME
-#    陣列       on-call-support[]    → 環境變數要寫成 ACCOUNT_ONCALLSUPPORT_0_
-#                                      ACCOUNT_ONCALLSUPPORT_1_ ... 開始難看了
-# =============================================================================
+# account.yml：Config Server 提供給 account 服務的設定。
+# 檔名必須對應 spring.application.name=account；可由
+# http://localhost:8071/account/default 查看合併後的 JSON 設定來源。
 
 account:
-  # 值裡刻意標註「來自 configserver」—— 這樣你打 API 就能一眼確認
-  # 拿到的是遠端設定，不是服務自己 application.yaml 裡的預設值
-  message: "歡迎使用帳戶相關 API（來自 configserver / git / rabbit MQ / webhook-monitor / run from Docker container）refresh busrefresh"
+  # 用訊息內容確認服務取得了 Config Server 的遠端設定。
+  message: "歡迎使用帳戶相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）"
 
   contact-details:
     name: "Tony Shangkuan - Developer"
@@ -34,18 +14,11 @@ account:
     - "(02) 1234-5678"
     - "(02) 8765-4321"
 
-# 自訂 key，Spring 本身不認識，但一樣讀得到（env.getProperty("build.version")）
+# 自訂設定，可由 env.getProperty("build.version") 讀取。
 build:
   version: "1.0"
 
-# ---------------------------------------------------------------------------
-# 也可以在這裡覆寫 Spring 自己的設定。下面這行會蓋掉 account 服務
-# application.yaml 裡的 logging.level 設定 —— 試著改成 INFO 再重啟服務，
-# 就能觀察到「設定確實是從遠端來的」。
-#
-# ⚠ 但別在這裡改 server.port。改了容器內部聽的 port 就變了，
-#   compose.yml 的 ports: 對不上，服務會正常啟動但永遠連不上。
-# ---------------------------------------------------------------------------
+# 可在此覆寫 application.yaml 的 logging 設定；修改 server.port 前要同步更新服務映射。
 logging:
   level:
     org.hibernate.tool.schema: DEBUG

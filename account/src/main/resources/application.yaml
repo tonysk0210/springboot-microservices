@@ -53,6 +53,13 @@ spring:
     # 本機預設 optional；Compose / Kubernetes 設空字串後，Config Server 就是必要依賴。
     import: "${CONFIGSERVER_OPTIONAL_PREFIX:optional:}configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
 
+  # RabbitMQ 供 Spring Cloud Bus 廣播 refresh；本機使用 localhost，容器由 Compose 改為 rabbitmq。
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
   cloud:
     openfeign:
       client:
@@ -186,18 +193,7 @@ spring:
           binder: kafka1
           group: ${spring.application.name}-kafka
 
-  # RabbitMQ 連線（Spring Cloud Bus 用它廣播 refresh 事件）
-  # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
-  #    寫出來只是讓依賴關係看得見，以及容器化時知道要改哪一行。
-  # ⚠ 容器裡由 compose 覆寫：SPRING_RABBITMQ_HOST: rabbitmq
-  # ⚠ RabbitMQ 沒開時服務仍會啟動，但會在背景無限重連，而且收不到 Bus 廣播。
-  # ⚠ guest 只適合本機。容器間連線若出現 ACCESS_REFUSED，就是 guest 被限制
-  #   只能從 loopback 連，得另建帳號。
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
+
 
   # Kafka 連線（account-events 這個事件 topic 用它）
   # 🔑 刻意跟上面 rabbitmq 放同一層 —— 兩個 broker 的「位址設定」就該長得一樣。

@@ -147,8 +147,7 @@ services:
         condition: service_healthy
 
   # ---------------------------------------------------------------------------
-  #  rabbitmq —— Spring Cloud Bus 的訊息中介
-  #  四個 Spring 服務都連它，所以它必須先就緒
+  # rabbitmq：Spring Cloud Bus 的訊息中介，服務透過它廣播 refresh 事件。
   # ---------------------------------------------------------------------------
   rabbitmq:
     image: rabbitmq:4-management
@@ -157,32 +156,19 @@ services:
       - "5672:5672"      # AMQP，服務連線用
       - "15672:15672"    # 管理介面 http://localhost:15672 （guest/guest）
 
-    # ⚠ 這行的重點是「止血」，不是「保存資料」。
-    #   rabbitmq image 的 Dockerfile 寫了 VOLUME /var/lib/rabbitmq，
-    #   所以那個路徑「一定」會被掛上一塊 volume —— 你不寫，Docker 就自己開一塊
-    #   亂碼名字的匿名 volume，而且每次容器重建就換一塊新的、舊的變孤兒。
-    #   （實測：不寫的期間累積了 77 個孤兒 volume，約 560MB。）
-    #   給名字之後每次都用同一塊，不再長孤兒。
-    #
-    # ⚠ 右邊的路徑不能改 —— image 的 VOLUME、RABBITMQ_DATA_DIR、HOME 三個
-    #   都指向 /var/lib/rabbitmq。改成別的路徑不會少掉那塊匿名 volume，
-    #   只會變成「兩塊 volume，一塊有資料一塊是空的」。
-    #   查法：docker image inspect rabbitmq:4-management --format '{{json .Config.Volumes}}'
-    #
-    # 🔑 資料本身其實可有可無 —— Spring Cloud Bus 用的 exchange 和 queue
-    #    每次服務啟動都會自動重新宣告，rabbitmq 洗掉重來也不影響。
-    #    但留著的話，管理介面上手動設的東西（使用者、policy）就不會消失。
+    # 使用 named volume 保存 RabbitMQ 設定，避免容器重建產生匿名 volume。
+    # Bus exchange/queue 會自動重建；volume 主要保存使用者與 policy。
     volumes:
       - "rabbitmq-data:/var/lib/rabbitmq"
 
     healthcheck:
-      # rabbitmq-diagnostics 是 image 內建的，不用自己裝
+      # 使用 image 內建工具檢查 AMQP port 是否可連線。
       test: [ "CMD", "rabbitmq-diagnostics", "check_port_connectivity" ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s     # 前 30 秒失敗不算數（RabbitMQ 啟動要時間）
-    # 它不是 Spring 服務，只需要共用的資源限制那一層
+    # RabbitMQ 不是 Spring 服務，只套用共用資源限制。
     extends:
       file: common.yml
       service: resource-limits

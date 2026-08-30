@@ -46,15 +46,10 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
-        <!-- Config Monitor —— 提供 POST /monitor 接收 git webhook：解析 payload，
-             把 configyml/account.yml 對應成 account，經 Bus 只通知有變的服務。
-             （/actuator/busrefresh 則是無條件通知全部。）
-             ⚠ 一般 @RestController，不在 /actuator 底下，不用加進 exposure.include。
-             ⚠ POST only；預設不驗證 webhook secret，對外開放要加保護。
-             本機測試（GitHub 連不到 localhost）：
-               Invoke-RestMethod http://localhost:8071/monitor -Method Post `
-                 -Headers @{"X-Github-Event"="push"} -ContentType "application/json" `
-                 -Body '{"commits":[{"modified":["configyml/account.yml"]}]}' -->
+        <!-- Config Monitor：提供 POST /monitor 接收 Git webhook。
+             設定檔變更後，透過 Bus 通知受影響的微服務重新載入設定。
+             /actuator/busrefresh 則是手動通知全部服務；/monitor 不屬於 Actuator。
+             對外使用時應驗證 webhook secret。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-monitor</artifactId>

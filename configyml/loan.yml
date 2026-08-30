@@ -1,17 +1,9 @@
-# =============================================================================
-#  loan.yml —— Config Server 發給 loan 服務的設定
-# =============================================================================
-#
-#  ⚠ 檔名必須等於 loan/src/main/resources/application.yaml 裡的
-#    spring.application.name（= loan）。對不上就什麼都拿不到，且沒有錯誤訊息。
-#
-#  取得方式：
-#      http://localhost:8071/loan/default
-#      http://localhost:8071/loan-default.yml
-# =============================================================================
+# loan.yml：Config Server 提供給 loan 服務的設定。
+# 檔名必須對應 spring.application.name=loan；可用
+# http://localhost:8071/loan/default 查看設定。
 
 loan:
-  message: "歡迎使用貸款相關 API（來自 configserver / git / rabbit MQ / webhook-monitor / run from Docker container）refresh busrefresh"
+  message: "歡迎使用貸款相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）"
 
   contact-details:
     name: "Tony Shangkuan - Developer"
