@@ -45,10 +45,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-config</artifactId>
-        </dependency>
         <!-- Eureka Client：讓 lb://SERVICE 透過服務名稱尋找可用實例。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

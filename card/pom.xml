@@ -77,10 +77,8 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-        <!-- Config Client —— 啟動時向 Config Server 拿 configyml/card.yml
-             （檔名 = spring.application.name），並帶進 /actuator/refresh。
-             ⚠ 必須搭配 application.yaml 的 spring.config.import，否則啟動失敗
-               （No spring.config.import property has been defined）。 -->
+        <!-- Config Client：啟動時向 Config Server 取得 card 設定。
+             必須搭配 spring.config.import；加上 optional: 可在 Config Server 暫時無法連線時仍讓服務啟動。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>

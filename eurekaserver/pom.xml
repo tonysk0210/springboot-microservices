@@ -35,10 +35,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-config</artifactId>
-        </dependency>
         <!-- Eureka Server —— 註冊中心本體。提供兩樣東西：
                  /eureka/*    客戶端註冊與查詢用的 REST API（機器在用）
                  /            儀表板網頁（人在看，http://localhost:8070）

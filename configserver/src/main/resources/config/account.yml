@@ -1,2 +1,8 @@
+# 請求 http://localhost:8071/account/default (/{application}/{profile}/{label})時，Config Server 會以 account　對應 spring.application.name，並合併 Git 的 configyml/account.yml 與本檔案 (config/account.yml)。
+# default 代表預設 profile；同名設定以 composite 中排前的 Git 為準。
+
+# 檔名 account.yml 必須對應微服務的 spring.application.name: account。
+# 這裡的　account 也必須與 DTO 的 @ConfigurationProperties(prefix = "account") 一致。
 account:
-  native-property: "這個值來自 native backend (config/account.yml)" # Git 版沒有這個欄位，用來確認 native 設定也被合併。
+  # native-property 名稱可自訂，但必須對應 DTO 的 nativeProperty 欄位才會成功綁定。
+  native-property: "這個值來自 native backend (config/account.yml)"

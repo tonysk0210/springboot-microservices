@@ -25,8 +25,6 @@ logging:
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
-  # ⚠ 這個名字決定去 Config Server 拿哪個檔案：account → configyml/account.yml
-  #   對不上時 Config Server 回「200 + 空設定」而不是 404，服務照常啟動但拿到 null。
   application:
     name: account
 
@@ -47,21 +45,10 @@ spring:
       hibernate:
         format_sql: true # Hibernate 印出 SQL 時自動換行、縮排，方便對照資料表結構與資料
 
-  # 啟動時去 Config Server 抓設定，疊在本檔案之上（同名 key 遠端贏；
-  # 但環境變數又贏過遠端，所以 compose 的 environment: 可以當除錯後門）。
-  #
-  # optional: = 抓不到也照樣啟動，退回用本檔案的值 —— 本機想單獨跑 account 時方便。
-  #
-  # 位址寫成變數，本機和容器共用同一行：
-  #     IntelliJ 跑（沒設變數）→ localhost
-  #     容器跑（common.yml 設 CONFIGSERVER_HOST: configserver）→ configserver
-  #
-  # ⚠ 千萬不要改回「在 compose 用 SPRING_CONFIG_IMPORT 覆寫」——那樣不會覆寫，
-  #   而是「兩個 import 都執行」。spring.config.import 跟一般屬性的規則不同：
-  #   一般屬性同名 key 比優先權、高的贏；但 import 是由 ConfigData 機制逐個
-  #   設定來源分別處理，yaml 一份、環境變數一份，互不相干。
-  #   症狀：log 每次啟動和 refresh 都多印 localhost:8071 的 Connection refused，
-  #        程式其實正常（被 optional: 忽略了），但假警報會蓋掉真警報。
+  # 啟動時向 Config Server 取得設定，遠端設定會覆蓋本檔案的同名值；環境變數優先權更高。
+  # optional: 代表 Config Server 無法連線時仍可啟動，適合 IntelliJ 本機測試。
+  # CONFIGSERVER_HOST 讓本機使用 localhost、Compose/Kubernetes 使用 configserver。
+  # 不要另外用 SPRING_CONFIG_IMPORT 覆寫，否則會變成同時執行兩組 import。
   config:
     # 本機預設 optional；Compose / Kubernetes 設空字串後，Config Server 就是必要依賴。
     import: "${CONFIGSERVER_OPTIONAL_PREFIX:optional:}configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"

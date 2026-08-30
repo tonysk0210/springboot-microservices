@@ -16,15 +16,6 @@ spring:
   application:
     name: eurekaserver
 
-  # 本機跑 → localhost，容器跑 → configserver（由 common.yml 的 CONFIGSERVER_HOST 覆寫）。
-  #
-  # ⚠⚠ 不要把 server.port / eureka.* 放進 configyml/eurekaserver.yml ⚠⚠
-  #   Config Server 的值贏過本檔案，等於遠端能偷改本服務的 port，而 optional:
-  #   讓失敗時完全無聲。判準：「網路拓撲」屬於本檔案 + compose，「業務內容」才放遠端。
-  #   eurekaserver 是純基礎設施，沒有任何設定需要遠端下發。
-  config:
-    import: "optional:configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
-
 # =============================================================================
 #  單機模式
 #  🔑 為什麼 Eureka Server 需要一組 eureka.client.*？因為 Eureka 天生設計成叢集 ——

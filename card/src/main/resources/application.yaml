@@ -32,21 +32,9 @@ spring:
     init:
       mode: always
       schema-locations: classpath:/sql/schema.sql
-  # 啟動時去 Config Server 抓設定，疊在本檔案之上（同名 key 遠端贏；
-  # 但環境變數又贏過遠端，所以 compose 的 environment: 可以當除錯後門）。
-  #
-  # optional: = 抓不到也照樣啟動，退回用本檔案的值 —— 本機想單獨跑 card 時方便。
-  #
-  # 位址寫成變數，本機和容器共用同一行：
-  #     IntelliJ 跑（沒設變數）→ localhost
-  #     容器跑（common.yml 設 CONFIGSERVER_HOST: configserver）→ configserver
-  #
-  # ⚠ 千萬不要改回「在 compose 用 SPRING_CONFIG_IMPORT 覆寫」——那樣不會覆寫，
-  #   而是「兩個 import 都執行」。spring.config.import 跟一般屬性的規則不同：
-  #   一般屬性同名 key 比優先權、高的贏；但 import 是由 ConfigData 機制逐個
-  #   設定來源分別處理，yaml 一份、環境變數一份，互不相干。
-  #   症狀：log 每次啟動和 refresh 都多印 localhost:8071 的 Connection refused，
-  #        程式其實正常（被 optional: 忽略了），但假警報會蓋掉真警報。
+  # 啟動時向 Config Server 取得設定；遠端同名值會覆蓋本檔案，環境變數優先權更高。
+  # optional: 代表 Config Server 無法連線時仍可啟動；CONFIGSERVER_HOST 供本機與容器切換位址。
+  # 不要另外設定 SPRING_CONFIG_IMPORT，避免同時執行兩組 import。
   config:
     # 本機預設 optional；Compose / Kubernetes 設空字串後，Config Server 就是必要依賴。
     import: "${CONFIGSERVER_OPTIONAL_PREFIX:optional:}configserver:http://${CONFIGSERVER_HOST:localhost}:8071/"
