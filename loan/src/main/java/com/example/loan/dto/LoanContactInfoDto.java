@@ -17,6 +17,9 @@ public class LoanContactInfoDto {
     @Schema(description = "服務歡迎訊息", example = "歡迎使用貸款相關 API（來自 configserver / git）")
     private String message;
 
+    @Schema(description = "native backend 專屬測試設定", example = "這個值來自 native backend")
+    private String nativeProperty;
+
     @Schema(description = "聯絡資訊")
     private ContactDetails contactDetails;
 

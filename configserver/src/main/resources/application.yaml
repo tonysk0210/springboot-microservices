@@ -5,6 +5,29 @@ spring:
   application:
     name: configserver
 
+  # 啟用 composite，讓 Config Server 同時讀取 Git 與 native 設定。
+  profiles:
+    active: composite
+    config:
+      server:
+        # 依序合併 Git 與 native；同名設定以 Git 為準。
+        composite:
+          # 第一順位：Git
+          - type: git
+            uri: https://github.com/tonysk0210/springboot-microservices
+            default-label: main
+            # Git 設定檔所在的子目錄。
+            search-paths: configyml
+            # Git clone 異常時強制重新同步。
+            force-pull: true
+            # 啟動時立即 clone Git；若 URI、權限或分支錯誤，及早讓啟動失敗。並把 Git repository clone 到 Config Server 的暫存目錄。
+            clone-on-start: true
+
+          # 第二順位：native
+          - type: native
+            # 讀取打包在 Config Server 內的 native 設定檔。
+            search-locations: classpath:/config
+
   # RabbitMQ 連線。configserver 需要 Bus 是為了「發送」—— /monitor 收到 GitHub
   # webhook 後，靠 Bus 把 refresh 事件廣播給三個服務。
   # 🔑 這四行可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
@@ -15,16 +38,6 @@ spring:
     username: guest
     password: guest
 
-  # ⚠ 這裡刻意「完全不寫 spring.profiles」—— git 是預設後端，不用也不能靠 profile 指定。
-  #   Spring Cloud 沒有名為 git 的內建 profile，寫 active: git 只是啟用一個空 profile，
-  #   對後端選擇毫無影響，而且不會有任何警告。
-  #   只有 native 是靠 profile 切換的（原始碼是 @Profile("native")）。
-  #
-  #   ---- 要切回 native 後端時，取消註解下面兩行，並取消註解最下方的 native: 區塊 ----
-  #   （兩處都要，只做一半沒有效果）
-  #   profiles:
-  #     active: native
-
   cloud:
     bus:
       refresh:
@@ -34,58 +47,6 @@ spring:
         # 🔑 只關掉「接收端」，不影響 /monitor 的「發送」—— 兩者在原始碼裡是不同的
         #    設定類別，只有接收端受這個開關控制。
         enabled: false
-
-    config:
-      server:
-        git:
-          # ⚠ 用 HTTPS 不要用 SSH —— 容器裡沒有你的 SSH key，會卡在認證。
-          uri: https://github.com/tonysk0210/springboot-microservices
-
-          default-label: main    # 分支名（Config Server 術語叫 label）
-
-          # ⚠ 不設的話只會讀 repo 根目錄，configyml/account.yml 找不到 ——
-          #   而且不報錯，只回空的 propertySources。
-          search-paths: configyml
-
-          # 本機 clone 變髒時強制覆蓋，避免卡在無法 pull 的狀態
-          force-pull: true
-
-          # 啟動時就 clone（預設 false = 等第一個請求才 clone）。
-          # ⚠ 預設的懶惰行為很難查：uri 或 search-paths 打錯字時 configserver 會
-          #   「正常啟動」，直到有服務來要設定才失敗，而你在那邊只看到拿到 null。
-          #   設 true 就是 fail fast。容器化後還有第二個好處：容器變 healthy 時
-          #   代表 repo 真的 clone 好了，depends_on: service_healthy 才名副其實。
-          clone-on-start: true
-
-          # 每次請求都會 git fetch（預設 refresh-rate: 0），所以 push 之後不必重啟。
-          # 要減少對 GitHub 的請求：refresh-rate: 30
-
-          # ⚠ private repo 才需要（password 填 GitHub token）。正式環境用環境變數：
-          #   SPRING_CLOUD_CONFIG_SERVER_GIT_USERNAME / ..._PASSWORD
-          # username: tonysk0210
-          # password: ${GIT_TOKEN}
-
-        # ---- native 後端（保留備用，目前停用）--------------------------------
-        # 不需要 git repo，直接讀本機檔案。要切回來除了取消註解這段，還必須把
-        # 上面的 spring.profiles.active: native 一起取消註解。
-        #
-        # ⚠ 取消註解時注意兩件事：
-        #   1. native: 要跟 git: 同一層（8 個空格），不能縮成 git: 的子項目
-        #   2. 下面兩行 search-locations「二選一」，兩行都留會是同名 key，
-        #      YAML 直接解析失敗（found duplicate key search-locations）
-        #
-        #   classpath:/config   檔案打包進 jar → 改設定要 package + 重建 image + 重啟容器 （等於失去「改設定不用重新部署」這個核心價值，只適合最初練習）
-        #   file:///磁碟路徑     存檔就生效，configserver 不用重啟
-        #
-        #   ⚠ 但不管哪一種，三個服務都還是要 refresh —— 客戶端只在啟動時抓一次設定，跟後端是什麼完全無關。
-        #   ⚠ Windows 路徑在容器裡不存在，要用 bind mount 把主機資料夾對應進去，並改成容器內路徑：
-        #        volumes: ["D:/.../configyml:/config"]
-        #        search-locations: "file:///config"
-        #
-#         native:
-#           search-locations: "classpath:/config"
-#           # search-locations: "file:///D:/Fork/github/springboot-microservices/configyml"
-
 
 management:
   endpoints:
