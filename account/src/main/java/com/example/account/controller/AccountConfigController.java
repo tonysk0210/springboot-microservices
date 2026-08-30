@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 提供目前服務實際綁定的設定資訊。 */
+/**
+ * 提供目前服務實際綁定的設定資訊。
+ */
 @Tag(name = "服務設定 API", description = "查詢由 Config Server 提供的服務設定")
 @RestController
 @RequiredArgsConstructor

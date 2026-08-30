@@ -43,7 +43,10 @@ param(
     [string] $Path = "/monitor",
 
     # 容器名稱，沿用 compose 那邊 <服務名>-ms 的慣例
-    [string] $ContainerName = "hookdeck-ms"
+    [string] $ContainerName = "hookdeck-ms",
+
+    # Docker 記憶體上限；可用 -MemoryLimit 1g 調整。
+    [string] $MemoryLimit = "512m"
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,8 +89,10 @@ Write-Host ""
 #                           會退化成「臨時訪客帳號」→ 拿到全新的 source 網址，
 #                           而 GitHub 還指著舊的 → 事件永遠進不來，且畫面上一切正常。
 #   host.docker.internal    容器裡的 localhost 是容器自己，連不到主機的 8071。
+#   --memory               限制 Hookdeck 容器最多使用的記憶體。
 docker run --rm -it `
     --name $ContainerName `
+    --memory $MemoryLimit `
     -v "$env:USERPROFILE\.config\hookdeck:/config" `
     hookdeck/hookdeck-cli `
     --hookdeck-config /config/config.toml `

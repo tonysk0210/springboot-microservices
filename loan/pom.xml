@@ -156,8 +156,8 @@
                          BP_* 是建置設定；BPE_* 是 container 啟動時的預設環境變數。
                          JVM 記憶體設定見 compose.yml 的 BPL_JVM_THREAD_COUNT。
 
-                         .\mvnw spring-boot:build-image -Dmaven.test.skip=true：只建立本機 image。
-                         再加 -Dspring-boot.build-image.publish=true：建立後直接推送到 registry。
+                         .\mvnw spring-boot:build-image "-Dmaven.test.skip=true"：只建立本機 image。
+                         再加 "-Dspring-boot.build-image.publish=true"：建立後直接推送到 Docker hub registry。
                          maven.test.skip=true 表示略過測試。 -->
                     <image>
                         <name>anthonysk/${project.artifactId}:${project.version}</name>

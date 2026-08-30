@@ -20,15 +20,13 @@
 services:
 
   resource-limits:
-    # ⚠ deploy 原本是 Swarm 專用欄位，舊版 docker-compose（v1，有橫線）會忽略它。
-    #   等價的簡單寫法是 mem_limit: 700m。
+    # 限制每個使用此設定的容器最多使用 700 MB 記憶體。
     deploy:
       resources:
         limits:
-          # ⚠ 超過上限「不會」拋 OutOfMemoryError，是被 Linux OOM killer 直接砍掉，
-          #   docker ps -a 顯示 exit code 137，log 通常什麼線索都不留。
-          #   五個容器 × 700m = 3.5GB，記得確認 Docker Desktop 的 WSL2 配額夠。
-          memory: 700m
+          # 超過上限時容器可能被系統終止，通常會看到 exit code 137。
+          # 多個容器合計的記憶體上限也必須低於 Docker Desktop 可用配額。
+          memory: 800m
 
   configserver-base:
     extends:

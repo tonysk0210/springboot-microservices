@@ -44,6 +44,109 @@
 
 services:
   # ---------------------------------------------------------------------------
+  #  account —— 帳戶與客戶資料
+  # ---------------------------------------------------------------------------
+  account:
+    # account 是其他容器呼叫本服務時使用的 DNS 名稱（account:8080）。
+    # image 不在本機時，Compose 會嘗試從 registry 下載。
+    image: anthonysk/account:0.0.1-SNAPSHOT
+    # 固定容器名稱，方便在 Docker Desktop 或 CLI 辨識；因此不適合用 --scale 擴充。
+    container_name: account-ms
+    # 8080:8080 = 主機 port:容器 port；容器互連直接使用 account:8080。
+    ports:
+      - "8080:8080"
+
+    # 使用 mysql service；帳密由 common.yml 提供，這裡指定 accountdb 資料庫。
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
+      # 透過 Compose DNS 直接呼叫 Loan、Card，不使用 Eureka。
+      KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
+      KUBERNETES_CARD_BASE_URL: "http://card:9000"
+      # 容器使用 kafka:9092；本機程式使用 localhost:29092。
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
+    # 容器啟動後先等待 40 秒，再每 10 秒檢查一次；單次最多等 5 秒，連續失敗 5 次才標記為不健康。
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    # 從 common.yml 複用 JVM、RabbitMQ、Config Server、記憶體與依賴設定。
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    # MySQL、Kafka 健康後才啟動 Account。
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  #  loan —— 貸款資料
+  # ---------------------------------------------------------------------------
+  loan:
+    image: anthonysk/loan:0.0.1-SNAPSHOT
+    container_name: loan-ms
+
+    # 設定容器內的 HOSTNAME，讓分流觀測 log 顯示 loan-ms；不影響 DNS 或服務路由。 Kubernetes 會自動使用 Pod 名稱，不需另外設定。
+    hostname: loan-ms
+    ports:
+      - "8090:8090"
+    environment:
+      # 讓 Paketo 以 50 條執行緒估算記憶體，替 JVM heap 保留更多空間，避免 heap 太小而 OOM；不會限制實際執行緒數。
+      BPL_JVM_THREAD_COUNT: 50
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/loandb"
+
+    # Buildpacks image 沒有 wget/curl，使用 bash 的 /dev/tcp 檢查健康端點。
+    healthcheck:
+      test: [ "CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8090 && echo -e "GET /actuator/health HTTP/1.0\r\n\r" >&3 && grep -q "\"status\":\"UP\"" <&3' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+
+  # ---------------------------------------------------------------------------
+  #  card —— 信用卡資料
+  # ---------------------------------------------------------------------------
+  card:
+    image: anthonysk/card:0.0.1-SNAPSHOT
+    container_name: card-ms
+    # 設定容器內的 HOSTNAME，讓分流觀測 log 顯示 card-ms；不影響 DNS 或服務路由。 Kubernetes 會自動使用 Pod 名稱，不需另外設定。
+    hostname: card-ms
+    ports:
+      - "9000:9000"
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/carddb"
+
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    extends:
+      file: common.yml
+      service: microservice-base
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
   #  rabbitmq —— Spring Cloud Bus 的訊息中介
   #  四個 Spring 服務都連它，所以它必須先就緒
   # ---------------------------------------------------------------------------
@@ -314,174 +417,8 @@ services:
       retries: 5
       start_period: 40s
 
-  # ---------------------------------------------------------------------------
-  #  account —— 帳戶與客戶資料
-  # ---------------------------------------------------------------------------
-  account:
-    # 🔑 這個 key 就是「DNS 名稱」—— 其他容器用 http://account:8080 找它。
-    #    認的是這個 key，不是下面的 container_name。
-    #
-    # 本檔案「只負責跑，不負責建」，四個 image 都要自己先建好。
-    # ⚠ 本機沒有這個 image 時，Compose 會改去 Docker Hub 拉，然後報
-    #   pull access denied —— 那訊息很誤導，實際上只是你還沒 build。
-    image: anthonysk/account:0.0.1-SNAPSHOT
 
-    # ⚠ 寫死名字好認，代價是不能再 --scale（同名會衝突）。
-    #   不寫的話會自動命名 springboot-microservices-account-1。
-    container_name: account-ms
 
-    ports:
-      - "8080:8080"
-    #    ↑主機  ↑容器
-    #  ⚠ 這行只影響主機端。容器之間互相呼叫走內部網路，不需要 ports，
-    #    而且用的永遠是右邊那個容器 port。
-
-    # JVM 參數、SPRING_RABBITMQ_HOST、CONFIGSERVER_HOST、記憶體上限、
-    # depends_on（rabbitmq + configserver）全部來自 common.yml
-    extends:
-      file: common.yml
-      service: microservice-base
-
-    # ── 資料庫（共用的 mysql 容器）──────────────────────────────────────────
-    #
-    # ⚠ 這裡只覆寫 URL —— 帳密由 common.yml 的 microservice-base 帶進來，
-    #   因為三個服務的帳密相同、但 database 各自不同。
-    #
-    # 🔑 mysql 是「服務名 = DNS 名」。IntelliJ 那側走 localhost:3306
-    #    （application.yaml 的預設值），兩條路指向同一台 MySQL。
-    environment:
-      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
-
-      # 直接 Service 對照路徑：Compose network 以 service key 作為 DNS 名稱。
-      KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
-      KUBERNETES_CARD_BASE_URL: "http://card:9000"
-
-      # ⚠ 容器要走 INTERNAL listener（kafka:9092），本機走 EXTERNAL（localhost:29092）。
-      #   兩者不能互換 —— broker 會回報自己的位址叫客戶端改連過去。
-      #
-      # 🔑 名字就是「標準屬性 spring.kafka.bootstrap-servers 的環境變數形式」——
-      #    大寫、點和減號都換成底線。所以 application.yaml 那邊寫死本機值就好，
-      #    不需要 ${...} 佔位符。跟上面 SPRING_DATASOURCE_URL 和
-      #    common.yml 的 SPRING_RABBITMQ_HOST 是同一套做法。
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-
-    # ⚠ 硬依賴：連不上資料庫的話 Hibernate 建不出 EntityManagerFactory，
-    #   服務直接啟動失敗（不是重試，是掛掉）。
-    #   而 MySQL 第一次啟動要初始化資料目錄 + 建三個 database，比誰都慢。
-    #
-    # ⚠ kafka 是「軟依賴」硬寫：連不上時 account 還是能啟動（binder 會重試），
-    #   但第一次送事件會失敗。寫出來讓啟動後就是可用狀態。
-    depends_on:
-      mysql:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-
-    healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-
-  # ---------------------------------------------------------------------------
-  #  loan —— 貸款資料
-  # ---------------------------------------------------------------------------
-  loan:
-    # image 是 Buildpacks 產的：cd loan && ./mvnw spring-boot:build-image
-    image: anthonysk/loan:0.0.1-SNAPSHOT
-    container_name: loan-ms
-
-    # ⚠ container_name 「不會」改到容器的 hostname —— Docker 預設把 hostname 設成
-    #   容器 ID 的前 12 碼，而且會注入成環境變數 HOSTNAME。
-    #   LoanController 的分流觀測 log 印的就是它，不設的話會變成：
-    #       分流觀測：貸款查詢由 Pod=1aea091aae11 處理，選擇來源=eureka
-    #   加了這行才看得懂是誰處理的。
-    # 🔑 K8s 那邊不用設 —— kubelet 會把 Pod 名稱當 hostname，本來就是可讀的。
-    hostname: loan-ms
-
-    ports:
-      - "8090:8090"
-    extends:
-      file: common.yml
-      service: microservice-base
-
-    environment:
-      # ⚠ loan 專屬：修掉 Paketo 記憶體計算器把 heap 壓到 46MB 的問題。
-      #   症狀是啟動途中 OutOfMemoryError: Java heap space。
-      #   算法（見啟動 log 的 Calculated JVM Memory Configuration）：
-      #     700M − 10M direct − 157M metaspace − 240M code cache
-      #          − 250M thread stack（預設假設 250 條 × -Xss1M）= 43M 給 heap
-      #
-      #   common.yml 的 MaxRAMPercentage=75 對 loan 無效 —— Paketo 會把自己算的
-      #   -Xmx 追加在後面，而 -Xmx 優先權更高。account / card 不經過 Paketo，
-      #   所以那行對它們正常生效。
-      #
-      #   降到 50 就把 200M 還給 heap（約 243MB）。
-      #   ⚠ 這只改「計算假設」，不限制實際執行緒數。
-      BPL_JVM_THREAD_COUNT: 50
-
-      # 共用的 mysql 容器，各自的 database。完整說明見 account 那段。
-      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/loandb"
-
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-    # ⚠ loan 的 healthcheck 寫法跟 account / card 不一樣，因為它是 Buildpacks 產的。
-    #   Paketo 預設的 run image（ubuntu-noble-run-tiny）走 distroless 路線，
-    #   連 /bin/sh 都沒有，任何指令都跑不起來 → 永遠 unhealthy。
-    #   解法是在 loan/pom.xml 把 runImage 換成 paketobuildpacks/run-noble-base，
-    #   換完有了 bash —— 但「還是沒有 wget 和 curl」，所以不能照抄上面兩個服務。
-    #
-    #   改用 bash 內建的 /dev/tcp 自己講 HTTP：
-    #     exec 3<>/dev/tcp/主機/埠  bash 開一條 TCP 連線，綁到檔案描述子 3
-    #     echo -e "..." >&3         把 HTTP 請求寫進去（\r\n 是 HTTP 規定的換行）
-    #     grep -q ... <&3           讀回應，找到 "status":"UP" 就 exit 0
-    #
-    # ⚠ 一定要寫 "CMD", "bash" 不能用 CMD-SHELL —— CMD-SHELL 走 /bin/sh，
-    #   而這個 image 的 /bin/sh 是 dash，dash 沒有 /dev/tcp 這個功能。
-    # ⚠ 外層用 YAML 單引號，裡面的 \r\n 才會原封不動交給 echo -e 去解釋；
-    #   用雙引號的話 YAML 會先把它換成真正的換行字元。
-    healthcheck:
-      test: [ "CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8090 && echo -e "GET /actuator/health HTTP/1.0\r\n\r" >&3 && grep -q "\"status\":\"UP\"" <&3' ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-
-  # ---------------------------------------------------------------------------
-  #  card —— 信用卡資料
-  # ---------------------------------------------------------------------------
-  card:
-    # image 是 Jib 產的：cd card && ./mvnw compile jib:dockerBuild
-    image: anthonysk/card:0.0.1-SNAPSHOT
-    container_name: card-ms
-
-    # 同 loan：讓 CardController 的分流觀測 log 印出服務名而不是容器短 ID。
-    # 完整說明見 loan 那段。
-    hostname: card-ms
-
-    ports:
-      - "9000:9000"
-    extends:
-      file: common.yml
-      service: microservice-base
-
-    # 共用的 mysql 容器，各自的 database。完整說明見 account 那段。
-    environment:
-      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/carddb"
-
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-    healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9000/actuator/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
 
   # ---------------------------------------------------------------------------
   #  messageservice —— 事件驅動的通知服務（模擬寄信 / 發簡訊）
@@ -831,6 +768,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+    # Prometheus 內建健康端點；使用 image 內的 wget 定期檢查。
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
     extends:
       file: common.yml
       service: resource-limits
@@ -864,6 +809,14 @@ services:
       - "tempo-data:/var/tempo"
 
     command: [ "-config.file=/etc/tempo.yml" ]
+
+    # Tempo 內建 busybox wget，可用 /ready 確認服務已就緒。
+    healthcheck:
+      test: [ "CMD", "/busybox/wget", "-qO-", "http://127.0.0.1:3200/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
     extends:
       file: common.yml
@@ -900,6 +853,14 @@ services:
       tempo:
         condition: service_started
 
+    # Grafana 提供健康 API；image 內建 wget，可由 Docker 自動檢查。
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
     extends:
       file: common.yml
       service: resource-limits
@@ -928,23 +889,13 @@ volumes:
 
 
 # =============================================================================
-#  為什麼沒有 networks: 區塊
-#
-#  不需要 —— Compose 一定會自動建一個網路（springboot-microservices_default）並把所有服務接上去。自訂網路自帶 Docker 內建 DNS，所以服務之間可以用名字互相呼叫。
-#
-#  ⚠ 這不是 compose 獨有的能力，手動 docker network create + --network 也做得到。
-#    真正做不到的只有「不指定 --network 的 docker run」—— 那會落到預設 bridge，
-#    而預設 bridge 不提供容器名稱解析，只能用會變動的 IP。
-#
-#  ⚠ 名字只在「容器世界」有效：
-#      從哪裡呼叫        localhost:8080   account:8080
-#      Windows 瀏覽器        ✅              ❌
-#      另一個容器            ❌（指自己）      ✅
-#
-#  什麼時候才真的要寫 networks:？做分層隔離時 —— 例如 gateway 只接 frontend、
-#  db 只接 backend，讓 gateway 在網路層就碰不到 db。現在五個服務地位平等，
-#  寫了也只是換個名字。
+#  明確指定 Compose 使用的預設 network；所有 services 會自動加入。
+#  同一 network 內可透過 service name（例如 account、mysql）互相呼叫。
 # =============================================================================
+networks:
+  default:
+    name: springboot-microservices_default
+    driver: bridge
 
 
 # =============================================================================
