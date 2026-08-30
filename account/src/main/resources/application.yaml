@@ -319,29 +319,13 @@ management:
   endpoints:
     web:
       exposure:
-        # Actuator 預設只開 health，其他端點都要明確列出來。
-        #   env         看設定的來源與優先序 —— 查「值到底來自哪一層」最快的方式
-        #   refresh     只重抓「這一個」服務的設定（POST）
-        #   busrefresh  經 RabbitMQ 廣播，讓「所有」服務一起重抓（POST）
-        #   shutdown    優雅關閉服務（POST）—— 另需下方 endpoint.shutdown.access
+        # Actuator 端點：health 健康狀態；info 基本資訊；env 查看設定來源。
+        # refresh 只更新本服務；busrefresh 經 RabbitMQ 通知所有 Bus 服務；shutdown 優雅關閉。
+        # circuitbreakers/circuitbreakerevents 查看 account → loan/card 的斷路器；
+        # prometheus/metrics 提供監控指標。
         #
-        # ⚠ 不是所有設定 refresh 都改得動：
-        #     account.* 這類自訂設定、logging.level.*                        → 有效
-        #     server.port（Tomcat 已綁定）、spring.datasource.*（連線池已建立）→ 無效，只能重啟
-        #
-        # ⚠ env 會印出所有設定（含連線字串），refresh 是任何人都能打的 POST。
-        #   正式環境要用 Spring Security 保護，或只開在內部 port。
-        #
-        # 🔑 兩個都留著，除錯時可以把問題切一半：busrefresh 打了某個服務沒更新，
-        #    就單獨對它打 refresh —— 有更新代表問題在 Bus（沒收到廣播），
-        #    沒更新代表問題在 Config Server 那側（通常是忘記 push）。
-        #
-        # circuitbreakers       看 account → loan / card 兩個斷路器的狀態
-        # circuitbreakerevents  看每次呼叫的成敗與狀態轉換
-        # 🔑 這裡看到的跟 gateway 的是「不同的斷路器」——
-        #    gateway 那組監視 gateway → account，這組監視 account → loan / card。
-        #    loan 掛掉時只有這組會出現 ERROR，gateway 那組照樣是 SUCCESS
-        #    （因為 account 有正常回應 200）。
+        # refresh 只適合可動態重綁定的設定；server.port、已建立的資料庫連線通常需重啟。
+        # env、refresh、busrefresh、shutdown 可能暴露資訊或改變服務狀態，正式環境應加以保護。
         include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents,prometheus,metrics
 
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
