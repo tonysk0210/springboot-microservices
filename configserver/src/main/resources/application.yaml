@@ -1,12 +1,6 @@
 server:
   port: 8071
 
-# DEBUG 顯示 Spring Cloud Bus 與 Stream 的事件、連線及 binding，方便追蹤 refresh 廣播。
-logging:
-  level:
-    org.springframework.cloud.bus: DEBUG
-    org.springframework.cloud.stream: DEBUG
-
 spring:
   application:
     name: configserver
@@ -37,8 +31,6 @@ spring:
             search-locations: classpath:/config
 
     bus:
-      # 讓 Bus Queue 後綴包含服務名；HOSTNAME 確保多副本各自唯一。
-      id: ${spring.application.name}:${HOSTNAME:${random.uuid}}
       refresh:
         # Config Server 不需刷新自己的設定；不處理 refresh 事件，不影響 /monitor 發送 refresh 事件給其他微服務。
         enabled: false
