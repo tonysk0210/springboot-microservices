@@ -104,10 +104,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!-- 使用 Jib 建立 image：./mvnw compile jib:dockerBuild
-                 ⚠ compile 不能省 —— Jib 不會自己編譯，漏掉的錯誤訊息是
-                   "Obtaining project build output files failed"。
-                 各參數的完整說明見 card/pom.xml，那份寫得最詳細。 -->
+            <!-- Jib 不需要 Dockerfile；先 compile，再執行 jib:dockerBuild 建立本機 image。 -->
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>

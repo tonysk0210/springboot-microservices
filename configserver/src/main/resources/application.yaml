@@ -1,3 +1,6 @@
+server:
+  port: 8071
+
 spring:
   application:
     name: configserver
@@ -83,8 +86,6 @@ spring:
 #           search-locations: "classpath:/config"
 #           # search-locations: "file:///D:/Fork/github/springboot-microservices/configyml"
 
-server:
-  port: 8071        # ⚠ 不能省，預設 8080 會跟 account 撞
 
 management:
   endpoints:

@@ -35,11 +35,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- Config Server 本體 —— 提供 /{application}/{profile} 端點與 git/native 後端，
-             以及 /encrypt、/decrypt 和 {cipher} 自動解密。
-             ⚠ 光加依賴不夠，主類別要有 @EnableConfigServer。
-             ⚠ 它連帶帶進 config-client，所以 configserver 也會嘗試 refresh 自己
-               （見 application.yaml 的 spring.cloud.bus.refresh.enabled）。 -->
+        <!-- 提供 Config Server API、Git／native 設定來源，以及加密與 {cipher} 解密。主類別仍需加上 @EnableConfigServer。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-server</artifactId>
@@ -97,20 +93,15 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
 
-            <!-- Jib 建 image（不用寫 Dockerfile，跟 card 同一套做法）：
-                     ./mvnw compile jib:dockerBuild
-                 ⚠ compile 不能省，Jib 不會自己編譯。漏掉的錯誤訊息是
-                   Obtaining project build output files failed。 -->
+            <!-- Jib 不需要 Dockerfile；先 compile，再執行 jib:dockerBuild 建立本機 image。 -->
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
                     <from>
-                        <!-- 跟 account / card 同一個基底：alpine 有 wget（compose 的
-                             healthcheck 要用）和 sh（進去除錯要用）。
-                             docker:// = 用本機已經有的，不去網路抓（理由見 card/pom.xml）。
-                             ⚠ 前提是本機真的有：docker pull eclipse-temurin:25-jre-alpine -->
+                        <!-- 使用與其他服務相同的 Java／Alpine 基底；docker:// 代表使用本機 image。
+                             若本機沒有，先執行 docker pull eclipse-temurin:25-jre-alpine。 -->
                         <image>docker://eclipse-temurin:25-jre-alpine</image>
                     </from>
                     <to>
@@ -118,13 +109,10 @@
                     </to>
                     <container>
                         <ports>
-                            <!-- 等同 Dockerfile 的 EXPOSE -->
+                            <!-- 對應 Dockerfile 的 EXPOSE。 -->
                             <port>8071</port>
                         </ports>
-                        <!-- 刻意不設 <environment>：ENCRYPT_KEY（機密）和
-                             SPRING_RABBITMQ_HOST（只有容器裡才要指向服務名）都由
-                             compose 在執行期提供，不該寫死進 image。 -->
-                        <!-- 不要用 root 執行 -->
+                        <!-- 使用非 root 使用者執行。 -->
                         <user>nobody</user>
                         <labels>
                             <org.opencontainers.image.title>configserver</org.opencontainers.image.title>
