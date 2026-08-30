@@ -1,6 +1,12 @@
 server:
   port: 8071
 
+# DEBUG 顯示 Spring Cloud Bus 與 Stream 的事件、連線及 binding，方便追蹤 refresh 廣播。
+logging:
+  level:
+    org.springframework.cloud.bus: DEBUG
+    org.springframework.cloud.stream: DEBUG
+
 spring:
   application:
     name: configserver
@@ -8,6 +14,8 @@ spring:
   # 啟用 composite，讓 Config Server 同時讀取 Git 與 native 設定。
   profiles:
     active: composite
+
+  cloud:
     config:
       server:
         # 依序合併 Git 與 native；同名設定以 Git 為準。
@@ -28,6 +36,13 @@ spring:
             # 讀取打包在 Config Server 內的 native 設定檔。
             search-locations: classpath:/config
 
+    bus:
+      # 讓 Bus Queue 後綴包含服務名；HOSTNAME 確保多副本各自唯一。
+      id: ${spring.application.name}:${HOSTNAME:${random.uuid}}
+      refresh:
+        # Config Server 不需刷新自己的設定；不處理 refresh 事件，不影響 /monitor 發送 refresh 事件給其他微服務。
+        enabled: false
+
   # RabbitMQ 連線。configserver 需要 Bus 是為了「發送」—— /monitor 收到 GitHub
   # webhook 後，靠 Bus 把 refresh 事件廣播給三個服務。
   # 🔑 這四行可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
@@ -37,16 +52,6 @@ spring:
     port: 5672
     username: guest
     password: guest
-
-  cloud:
-    bus:
-      refresh:
-        # 不讓 configserver 處理收到的 refresh 廣播 —— 它的設定來自本檔案，
-        # refresh 自己毫無意義（log 只會出現 "Keys refreshed []"），卻會順帶噴一段
-        # 很長的 WARN（ConfigServerHealthIndicator 沒有無參建構子，rebinder 建不出來）。
-        # 🔑 只關掉「接收端」，不影響 /monitor 的「發送」—— 兩者在原始碼裡是不同的
-        #    設定類別，只有接收端受這個開關控制。
-        enabled: false
 
 management:
   endpoints:

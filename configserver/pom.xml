@@ -40,10 +40,8 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-server</artifactId>
         </dependency>
-        <!-- Spring Cloud Bus + RabbitMQ binder。
-             configserver 需要它是為了「發送」—— 下面的 monitor 收到 webhook 後，
-             要靠 Bus 才能把 refresh 事件廣播出去（不是為了接收）。
-             ⚠ 需要 RabbitMQ 在跑，否則啟動時會無限重連。 -->
+        <!-- Spring Cloud Bus + RabbitMQ：讓 /monitor 收到 webhook 後廣播 refresh 事件。
+             需要 RabbitMQ 才能發送通知。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>

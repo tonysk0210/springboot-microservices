@@ -88,10 +88,8 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
-        <!-- Spring Cloud Bus + RabbitMQ binder —— 提供 /actuator/busrefresh，
-             打一次讓所有服務重抓設定。
-             ⚠ 四個服務都要加，少一個那個服務收不到廣播且沒有錯誤訊息。
-             ⚠ 需要 RabbitMQ 在跑，否則啟動時連不上 broker。 -->
+        <!-- Spring Cloud Bus + RabbitMQ：支援 busrefresh 廣播設定刷新事件。
+             需要 RabbitMQ；加入此 dependency 的服務才能收發事件。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
