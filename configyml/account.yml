@@ -4,7 +4,7 @@
 
 account:
   # 用訊息內容確認服務取得了 Config Server 的遠端設定。
-  message: "歡迎使用帳戶相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）"
+  message: "歡迎使用帳戶相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）t"
 
   contact-details:
     name: "Tony Shangkuan - Developer"

@@ -3,7 +3,7 @@
 # http://localhost:8071/card/default 查看設定。
 
 card:
-  message: "歡迎使用信用卡相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）"
+  message: "歡迎使用信用卡相關 API（Git push → Config Server /monitor → RabbitMQ Bus → Docker container 內的微服務 refresh；設定由 Config Server 從 Git 載入）t"
 
   contact-details:
     name: "Tony Shangkuan - Developer"
