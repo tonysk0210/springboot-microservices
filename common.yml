@@ -1,115 +1,82 @@
 # =============================================================================
-#  compose.yml 的共用設定，用 extends 繼承。三層由通用到專用：
+#  compose.yml 的 extends 共用設定，由通用到專用：
 #
-#    resource-limits     只有記憶體上限          ← rabbitmq 用（它不是 Spring 服務）
+#    resource-limits     只有記憶體上限          ← 所有容器共用
 #        ↓
-#    configserver-base   + JVM 參數、連 RabbitMQ  ← configserver 用
+#    spring-bus-base     + 連 RabbitMQ            ← Spring Cloud Bus 用
 #        ↓
-#    microservice-base   + 向 Config Server 拿設定 ← account / loan / card 用
+#    microservice-base   + Config Server、Eureka、OTel
+#        ↓
+#    database-microservice-base + MySQL 帳密      ← account / loan / card 用
 #
-#  🔑 這裡的服務「不會被啟動」—— extends 只是把設定複製給引用它的服務。
-#     docker compose config 展開後看不到這些名字，只會看到內容被併進去。
-#  ⚠ 本檔案不能單獨 docker compose up（服務都沒有 image），它只是設定庫。
-#
-#  合併規則（實測過）：
-#    environment  合併，同名 key 由引用方（compose.yml）勝出
-#    depends_on   會被帶過來（Compose V2 支援，舊版 docker-compose v1 不支援）
-#    healthcheck  刻意不放這裡 —— 每個服務 port 不同，共用價值低
+#  這些 service 不會啟動，只作為設定範本；引用方可覆寫 environment。
+#  healthcheck 因各服務 port 不同，保留在 compose.yml。
 # =============================================================================
 
 services:
-
+  # ---------------------------------------------------------------------------
+  #  resource-limits —— 所有容器可共用的資源限制
+  # ---------------------------------------------------------------------------
   resource-limits:
-    # 限制每個使用此設定的容器最多使用 700 MB 記憶體。
     deploy:
       resources:
         limits:
-          # 超過上限時容器可能被系統終止，通常會看到 exit code 137。
-          # 多個容器合計的記憶體上限也必須低於 Docker Desktop 可用配額。
+          # 單一容器上限；總額須低於 Docker Desktop 的可用記憶體。
           memory: 800m
 
-  configserver-base:
+  # ---------------------------------------------------------------------------
+  #  spring-bus-base —— Spring Cloud Bus 與 RabbitMQ 的共用設定
+  # ---------------------------------------------------------------------------
+  spring-bus-base:
     extends:
-      service: resource-limits      # 同檔案內引用，不用寫 file:
+      service: resource-limits
     environment:
-      # 不設的話 JVM 只拿記憶體上限的 25% 當 heap（700m 下只有 175MB）。
-      # ⚠ 對 loan 無效 —— Paketo 會把自己算的 -Xmx 追加在後面，優先權更高。
-      #   詳見 compose.yml 裡 loan 的 BPL_JVM_THREAD_COUNT 那段。
-      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
-
-      # ⚠ 覆寫 application.yaml 的 localhost —— 容器裡的 localhost 是容器自己。
+      # 容器內以 Compose DNS 連 RabbitMQ。
       SPRING_RABBITMQ_HOST: rabbitmq
 
     depends_on:
       rabbitmq:
         condition: service_healthy
 
+  # ---------------------------------------------------------------------------
+  #  microservice-base —— 業務服務的 Config Server、Eureka、OTel 與共用依賴
+  # ---------------------------------------------------------------------------
   microservice-base:
     extends:
-      service: configserver-base
+      service: spring-bus-base
     environment:
-      # 只換「主機名」，不換整條 import 字串。
-      # application.yaml 寫的是 http://${CONFIGSERVER_HOST:localhost}:8071/，
-      # 所以本機跑 → localhost，容器跑 → configserver。
-      #
-      # ⚠ 為什麼不直接設 SPRING_CONFIG_IMPORT 覆寫整條？因為它「不會覆寫」——
-      #   spring.config.import 是由 ConfigData 機制逐個設定來源分別處理的，
-      #   yaml 一份、環境變數一份，兩份都會執行。實測結果：容器裡先連
-      #   configserver:8071（成功），再連 localhost:8071（Connection refused），
-      #   每次啟動和每次 refresh 都噴一輪 WARN。程式沒壞，但假警報很礙事。
+      # application.yaml 透過此主機名組出 Config Server 位址。
       CONFIGSERVER_HOST: configserver
 
-      # 服務註冊中心的位址。application.yaml 寫的是
-      #     defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
-      # 本機跑 → localhost，容器跑 → 這一行。
-      #
-      # ⚠ 整條包成一個變數，不要拆成 ${EUREKA_HOST}:${SERVER_PORT} ——
-      #   SERVER_PORT 會跟 Spring 自己的 server.port 環境變數撞名，設了會連帶
-      #   把 Eureka 的位址一起改掉，然後註冊一路失敗而 log 不說明原因。
-      #
-      # ⚠ 結尾的 /eureka/ 不能省，那是 Eureka 的 API 路徑，不是根路徑。
+      # Eureka API 位址；結尾的 /eureka/ 為必要路徑。
       EUREKA_URL: http://eurekaserver:8070/eureka/
 
-      # application.yaml 預設帶 optional:（本機單獨跑某個服務時方便）；容器中
-      # 設空字串移除 optional:，連不上 Config Server 就直接啟動失敗。
+      # 容器不使用 optional:，Config Server 不可用即啟動失敗。
       CONFIGSERVER_OPTIONAL_PREFIX: ""
 
-      # OpenTelemetry 的 span 往這裡送。application.yaml 寫的是
-      #     ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
-      # 本機跑 → localhost（tempo 容器有 ports 映射），容器跑 → 這一行。
-      # ⚠ 只有 account / loan / card / gatewayserver 繼承這層，
-      #   configserver / eurekaserver 沒有 OTel 依賴，設了也沒作用。
+      # 容器內將 trace 傳送至 Tempo。
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
 
-      # ── 資料庫帳密（三個服務共用同一台 MySQL）─────────────────────────────
-      # application.yaml 寫的是 ${SPRING_DATASOURCE_USERNAME:root}，
-      # 本機跑 → 預設 root/root，容器跑 → 這兩行（值一樣，但看得見來源）。
-      #
-      # ⚠ 連線字串「不在這裡」—— 每個服務的 database 不同（accountdb / loandb /
-      #   carddb），所以 SPRING_DATASOURCE_URL 寫在 compose.yml 各自的區塊。
-      #
-      # ⚠ gatewayserver 也繼承這一層，會拿到這兩個變數但完全用不到（它沒有資料庫）。
-      #   跟它拿到 H2 設定時是同樣的情況，留著比多開一層 base 划算。
-      #
-      # ⚠ 正式環境不該用 root，也不該三個服務共用同一組帳密 ——
-      #   應該每個 database 一個專用帳號，只授權它自己那個 schema。
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-
-    # ⚠ rabbitmq 那項嚴格說是多餘的（configserver 已經等過它，依賴會遞移），
-    #   但這三個服務是「直接連」RabbitMQ 的，寫出來才誠實 —— 哪天 configserver
-    #   不再需要 Bus，遞移關係消失時才不會安靜地壞掉。
-    #
-    # 🔑 eurekaserver 那項是「軟依賴硬寫」：Eureka 連不上服務照樣能啟動
-    #    （只是背景每 30 秒重試註冊）。寫出來的好處是啟動後就是可用狀態，
-    #    不會有「服務起來了但彼此還找不到對方」的空窗期。
-    #
-    # ⚠ mysql 刻意「不放這裡」—— gatewayserver 也繼承這一層，但它沒有資料庫，
-    #   讓它白等 MySQL 沒有意義。改由 account / loan / card 各自宣告。
+    # 等待共用基礎服務可用。
     depends_on:
       rabbitmq:
         condition: service_healthy
       configserver:
         condition: service_healthy
       eurekaserver:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  #  database-microservice-base —— 使用 MySQL 的業務服務共用設定
+  # ---------------------------------------------------------------------------
+  database-microservice-base:
+    extends:
+      service: microservice-base
+    environment:
+      # 共用 MySQL 帳密；各服務的資料庫 URL 在 compose.yml 宣告。
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    depends_on:
+      # 使用資料庫的服務須等待 MySQL 就緒。
+      mysql:
         condition: service_healthy

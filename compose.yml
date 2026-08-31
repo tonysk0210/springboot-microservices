@@ -73,15 +73,13 @@ services:
       retries: 5
       start_period: 40s
 
-    # 從 common.yml 複用 JVM、RabbitMQ、Config Server、記憶體與依賴設定。
+    # 複用資料庫業務服務的共用設定。
     extends:
       file: common.yml
-      service: microservice-base
+      service: database-microservice-base
 
-    # MySQL、Kafka 健康後才啟動 Account。
+    # Kafka 健康後才啟動 Account；MySQL 依賴由 database-microservice-base 提供。
     depends_on:
-      mysql:
-        condition: service_healthy
       kafka:
         condition: service_healthy
 
@@ -111,12 +109,7 @@ services:
 
     extends:
       file: common.yml
-      service: microservice-base
-
-    depends_on:
-      mysql:
-        condition: service_healthy
-
+      service: database-microservice-base
 
   # ---------------------------------------------------------------------------
   #  card —— 信用卡資料
@@ -140,11 +133,7 @@ services:
 
     extends:
       file: common.yml
-      service: microservice-base
-
-    depends_on:
-      mysql:
-        condition: service_healthy
+      service: database-microservice-base
 
   # ---------------------------------------------------------------------------
   # rabbitmq：Spring Cloud Bus 的訊息中介，服務透過它廣播 refresh 事件。
@@ -172,6 +161,37 @@ services:
     extends:
       file: common.yml
       service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  configserver —— 設定中心（git 後端 + Bus 廣播 + webhook monitor）
+  # ---------------------------------------------------------------------------
+  configserver:
+    # 以 Jib 建置：cd configserver && ./mvnw compile jib:dockerBuild
+    image: anthonysk/configserver:0.0.1-SNAPSHOT
+    container_name: configserver-ms
+    ports:
+      - "8071:8071"
+
+    environment:
+      # 從 .env 讀取金鑰；未設定即失敗，避免 {cipher} 設定解密後變成 null。
+      ENCRYPT_KEY: ${ENCRYPT_KEY:?請先在專案根目錄建立 .env 並填入 ENCRYPT_KEY}
+
+      # 讓 JGit 快取寫入可寫目錄，避免權限錯誤堆疊。
+      HOME: /tmp
+
+    healthcheck:
+      # 容器內以 BusyBox wget 連 127.0.0.1，避開 localhost 的 IPv4/IPv6 差異。
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8071/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      # clone-on-start 需要時間，避免過早判定為 unhealthy。
+      start_period: 60s
+
+    extends:
+      # 使用自身 application.yaml，不向 Config Server 取設定。
+      file: common.yml
+      service: spring-bus-base
 
   # ---------------------------------------------------------------------------
   #  mysql —— account / loan / card 共用的資料庫（一個容器、三個 database）
@@ -303,51 +323,7 @@ services:
       file: common.yml
       service: resource-limits
 
-  # ---------------------------------------------------------------------------
-  #  configserver —— 設定中心（git 後端 + Bus 廣播 + webhook monitor）
-  # ---------------------------------------------------------------------------
-  configserver:
-    # image 由 Jib 建：cd configserver && ./mvnw compile jib:dockerBuild
-    image: anthonysk/configserver:0.0.1-SNAPSHOT
-    container_name: configserver-ms
-    ports:
-      - "8071:8071"
 
-    # 用 configserver-base 而不是 microservice-base —— 它的設定來自自己的
-    # application.yaml，不向 Config Server 拿。
-    extends:
-      file: common.yml
-      service: configserver-base
-
-    environment:
-      # 只有 configserver 需要的加密金鑰，從 .env 讀。
-      # ⚠ :? 語法 = 沒設就讓 compose 直接失敗。刻意 fail fast，因為
-      #   configyml/*.yml 的 email 是 {cipher} 密文，沒金鑰會解成
-      #   invalid.account.contact-details.email = <n/a>，服務拿到 null ——
-      #   那種「啟動成功但資料錯」比啟動失敗難查得多。
-      ENCRYPT_KEY: ${ENCRYPT_KEY:?請先在專案根目錄建立 .env 並填入 ENCRYPT_KEY}
-
-      # 消掉 JGit 的 "Cannot save config file '/.config/jgit/config'" 錯誤堆疊。
-      # Jib 產的 image 用 nobody(65534) 跑，而容器裡 HOME 是 /（root 擁有，755），
-      # JGit 想在 $HOME/.config/jgit 寫一份時間戳精度的快取就會被權限擋下來。
-      # ⚠ 純粹是噪音 —— clone 實際落在 /tmp/config-repo-xxx，設定供應完全正常。
-      #   但那是一整段 ERROR + stack trace，會蓋掉真正該看的東西。
-      HOME: /tmp
-
-    healthcheck:
-      # 🔑 healthcheck 是「在容器裡面」執行的，所以打 127.0.0.1（容器自己），
-      #    跟上面 ports: 有沒有對外映射完全無關。
-      # ⚠ 用 127.0.0.1 不用 localhost：image 的 /etc/hosts 裡 localhost 同時對應
-      #   127.0.0.1 和 ::1，BusyBox wget 挑哪個不保證。healthcheck 失敗會卡住整條
-      #   depends_on 依賴鏈，用確定的位址比較安全。
-      # ⚠ 用 wget 不用 curl —— alpine 基底只有 BusyBox wget。
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8071/actuator/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      # ⚠ 60s：configserver 設了 clone-on-start，啟動時要先 clone 整個 GitHub repo，
-      #   比其他服務慢。給太短會一直被判 unhealthy，三個服務就永遠等不到。
-      start_period: 60s
 
   # ---------------------------------------------------------------------------
   #  eurekaserver —— 服務註冊中心（單機模式）
@@ -360,7 +336,7 @@ services:
     ports:
       - "8070:8070"
 
-    # 用 configserver-base 而不是 microservice-base —— 前者帶 JVM 參數、
+    # 用 spring-bus-base 而不是 microservice-base —— 前者帶
     # SPRING_RABBITMQ_HOST、depends_on rabbitmq；後者還會帶 EUREKA_URL 和
     # depends_on eurekaserver（自己等自己，死鎖）。
     #
@@ -369,7 +345,7 @@ services:
     #   背景無限重連，log 很吵。
     extends:
       file: common.yml
-      service: configserver-base
+      service: spring-bus-base
 
     environment:
       # ⚠⚠ 最關鍵的一行 ⚠⚠
@@ -390,7 +366,7 @@ services:
     #   三個微服務設 true 是因為它們真的需要遠端設定（拿不到就等於壞了）；
     #   eurekaserver 拿到的是空的，fail fast 只會讓它平白多一個死因。
     #
-    # ⚠ rabbitmq 那項由 configserver-base 帶進來（合併，不是覆蓋）。
+    # ⚠ rabbitmq 那項由 spring-bus-base 帶進來（合併，不是覆蓋）。
     depends_on:
       configserver:
         condition: service_healthy
@@ -414,10 +390,10 @@ services:
   #         account ──send-communication──▶ 我 ──communication-sent──▶ account
   #         account ──kafka-send-communication──▶ 我 ──kafka-communication-sent──▶ account
   #
-  #  ⚠ 用 configserver-base 不是 microservice-base ——
+  #  ⚠ 用 spring-bus-base 不是 microservice-base ——
   #    它沒有 Config Client 也沒有 Eureka Client，那層帶的
   #    CONFIGSERVER_HOST / EUREKA_URL / H2 設定對它全都沒有作用。
-  #    使用 configserver-base 取得 SPRING_RABBITMQ_HOST 和 JVM 參數；Kafka 位址
+  #    使用 spring-bus-base 取得 SPRING_RABBITMQ_HOST；Kafka 位址
   #    則在本服務下方另外覆寫。
   #
   #  ⚠ 刻意「不」depends_on account —— 兩者透過 exchange 解耦，
@@ -434,7 +410,7 @@ services:
 
     extends:
       file: common.yml
-      service: configserver-base
+      service: spring-bus-base
 
     environment:
       # microservice-base 才有這一項，這裡單獨補上（它有裝 OpenTelemetry）。
@@ -556,14 +532,7 @@ services:
     ports:
       - "8072:8072"
 
-    # 跟三個服務用同一層 —— 它同樣要向 Config Server 拿設定、要註冊到 Eureka、
-    # 要連 RabbitMQ 收 Bus 廣播。
-    #
-    # ⚠ 這層會順帶帶進資料庫的帳密。gatewayserver 沒有資料庫，
-    #   那兩個設定不會有任何作用（Spring 對不認識的 property 直接忽略），
-    #   留著只是為了不用再多開一層 base。
-    #   🔑 但 depends_on mysql 刻意「不」放在那一層 —— 那會讓 gateway 白等
-    #      資料庫就緒，而它根本不需要。
+    # 向 Config Server 取設定、註冊 Eureka，並透過 RabbitMQ 收 Bus 廣播。
     extends:
       file: common.yml
       service: microservice-base
