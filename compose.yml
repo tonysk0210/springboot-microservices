@@ -52,6 +52,8 @@ services:
     image: anthonysk/account:0.0.1-SNAPSHOT
     # 固定容器名稱，方便在 Docker Desktop 或 CLI 辨識；因此不適合用 --scale 擴充。
     container_name: account-ms
+    # 固定 Eureka 顯示的主機名稱；不影響 Compose DNS 或對外 port。
+    hostname: account-ms
     # 8080:8080 = 主機 port:容器 port；容器互連直接使用 account:8080。
     ports:
       - "8080:8080"
@@ -89,7 +91,6 @@ services:
   loan:
     image: anthonysk/loan:0.0.1-SNAPSHOT
     container_name: loan-ms
-
     # 設定容器內的 HOSTNAME，讓分流觀測 log 顯示 loan-ms；不影響 DNS 或服務路由。 Kubernetes 會自動使用 Pod 名稱，不需另外設定。
     hostname: loan-ms
     ports:
@@ -194,52 +195,35 @@ services:
       service: spring-bus-base
 
   # ---------------------------------------------------------------------------
-  #  mysql —— account / loan / card 共用的資料庫（一個容器、三個 database）
-  #
-  #  🔑 這裡是「IntelliJ 和容器看到同一份資料」的關鍵：
-  #        IntelliJ 跑的服務  →  localhost:3306   （靠下面的 ports 映射）
-  #        容器跑的服務      →  mysql:3306       （compose 內部網路）
-  #     兩條路指向同一台 MySQL，所以用哪邊建的資料另一邊都查得到。
-  #     換掉 H2 的主因就是這個 —— H2 檔案模式下本機和容器是兩份完全不同的資料。
-  #
-  #  ⚠ 一個容器三個 database，不是三個容器。維持「每個服務一個資料庫」的原則，
-  #    但只吃一份容器的記憶體。三個服務的表名雖然不衝突，仍刻意分開 schema。
+  #  mysql —— 一個容器提供 account、loan、card 三個 database。
+  #  IntelliJ 使用 localhost:3306；Compose 服務使用 mysql:3306，資料共用同一個 volume。
   # ---------------------------------------------------------------------------
   mysql:
     image: mysql:8.4
     container_name: mysql-ms
     ports:
-      # ⚠ 這行不能省 —— 少了它 IntelliJ 跑的服務連不到，就失去共用的意義了。
+      # 將容器的 MySQL port 提供給本機 IntelliJ 使用。
       - "3306:3306"
 
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?請在 .env 設定 MYSQL_ROOT_PASSWORD}
 
-    # ⚠ 預設的 InnoDB buffer pool 是 128M，加上其他開銷在 700m 上限下很緊，
-    #   容易被 Linux OOM killer 砍掉（docker ps -a 顯示 exit 137，log 沒線索）。
-    #   真的不夠就把下面 extends 的 resource-limits 拿掉、單獨寫 memory: 1g。
+    # 減少 InnoDB buffer pool，讓容器在記憶體上限內穩定運作。
     command: [ "--innodb-buffer-pool-size=64M" ]
 
     volumes:
-      # MySQL 真正的資料檔放在 named volume；只要它還在，這就是既有資料庫。
+      # 保留 MySQL 資料；刪除 volume 才會清空資料庫。
       - "mysql-data:/var/lib/mysql"
-      # Compose 把本機 ./mysql/init 掛載成 container 內的
-      # /docker-entrypoint-initdb.d（ro = 容器只能讀，不能改主機上的腳本）。
-      # MySQL 官方 image 的 entrypoint 在「資料目錄為空」的首次啟動時，會掃描
-      # 這個固定路徑，按檔名順序執行其中的 .sql / .sh；因此 01-create-databases.sql
-      # 會建立三個 database。mysql-data 已有資料時，entrypoint 會跳過整個初始化
-      # 步驟來保護既有資料，所以之後改腳本或新增 database 都不會自動生效。
+      # 將專案的 ./mysql/init 掛載到 MySQL 固定掃描的初始化目錄；(./mysql/init 是相對於 compose.yml 所在的專案根目錄) 空資料 volume 第一次啟動時，依檔名順序執行其中的 SQL。
       - "./mysql/init:/docker-entrypoint-initdb.d:ro"
 
     healthcheck:
-      # mysqladmin 是 image 內建的，不用自己裝。
-      # ⚠ 用 127.0.0.1 不用 localhost —— MySQL 對 localhost 會走 unix socket，
-      #   那條路徑在服務還沒完全就緒時的行為跟 TCP 不一樣。
+      # 使用 image 內建的 mysqladmin，透過 TCP 檢查 MySQL 是否可連線。
       test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1" ]
       interval: 10s
       timeout: 5s
       retries: 10
-      # ⚠ 第一次啟動要初始化資料目錄 + 跑 initdb，比其他容器慢很多。
+      # 預留時間給第一次資料庫初始化。
       start_period: 40s
 
     # 不是 Spring 服務，只要記憶體上限那一層
@@ -513,6 +497,8 @@ services:
     # image 由 Jib 建：cd gatewayserver && ./mvnw compile jib:dockerBuild
     image: anthonysk/gatewayserver:0.0.1-SNAPSHOT
     container_name: gatewayserver-ms
+    # 固定 Eureka 顯示的主機名稱；不影響 Compose DNS 或對外 port。
+    hostname: gatewayserver-ms
     ports:
       - "8072:8072"
 

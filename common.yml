@@ -71,9 +71,9 @@ services:
     extends:
       service: microservice-base
     environment:
-      # 共用 MySQL 帳密；各服務的資料庫 URL 在 compose.yml 宣告。
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      # 從 .env 注入共用的 MySQL 帳密；各服務的資料庫 URL 在 compose.yml 宣告。
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:?請在 .env 設定 SPRING_DATASOURCE_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?請在 .env 設定 SPRING_DATASOURCE_PASSWORD}
     depends_on:
       # 使用資料庫的服務須等待 MySQL 就緒。
       mysql:
