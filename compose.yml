@@ -3,7 +3,7 @@
 #
 #    rabbitmq      訊息中介。兩種用途：Bus 廣播設定刷新 + account↔messageservice 的通知
 #    mysql         account / loan / card 共用的資料庫（一個容器、三個 database）
-#    configserver  設定中心，其他五個向它拿設定
+#    configserver  設定中心，account / loan / card 向它拿設定
 #    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
 #    account / loan / card
 #    messageservice 事件驅動的通知服務（只收發訊息，沒有 HTTP API）
@@ -11,7 +11,7 @@
 #    keycloak      授權伺服器，發 token
 #    gatewayserver 對外單一入口（8072），路由到三個服務
 #
-#  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card / gatewayserver）
+#  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card）
 #  由 depends_on + healthcheck 保證。
 #  ⚠ 最後四個是「平行啟動」的，gatewayserver 不等三個服務 —— 原因見它自己那段。
 #  共用設定（JVM 參數、環境變數、記憶體上限、depends_on）抽在 common.yml，用 extends 繼承。
@@ -355,22 +355,6 @@ services:
       #   自身位址會是 localhost，之後做 peer replication 時一定出錯。
       EUREKA_HOST: eurekaserver
 
-      # 向 configserver 拿 configyml/eurekaserver.yml。
-      # ⚠ 目前那個檔案是空的，這趟往返拿回零個設定 —— 純粹是為了跟其他服務
-      #   寫法一致。哪天真的不需要，把 pom 的 spring-cloud-starter-config、
-      #   application.yml 的 config.import、這行、下面的 depends_on 一起拿掉，
-      #   eurekaserver 就完全不依賴任何人。
-      CONFIGSERVER_HOST: configserver
-
-    # ⚠ 這裡刻意「不設」SPRING_CLOUD_CONFIG_FAIL_FAST。
-    #   三個微服務設 true 是因為它們真的需要遠端設定（拿不到就等於壞了）；
-    #   eurekaserver 拿到的是空的，fail fast 只會讓它平白多一個死因。
-    #
-    # ⚠ rabbitmq 那項由 spring-bus-base 帶進來（合併，不是覆蓋）。
-    depends_on:
-      configserver:
-        condition: service_healthy
-
     healthcheck:
       # Jib + alpine 基底 → 有 BusyBox wget，寫法跟 configserver / account / card 相同。
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8070/actuator/health" ]
@@ -532,10 +516,10 @@ services:
     ports:
       - "8072:8072"
 
-    # 向 Config Server 取設定、註冊 Eureka，並透過 RabbitMQ 收 Bus 廣播。
+    # 註冊 Eureka，並透過 RabbitMQ 收 Bus 廣播；不向 Config Server 取設定。
     extends:
       file: common.yml
-      service: microservice-base
+      service: spring-bus-base
 
     # ⚠ 這裡刻意「不」depends_on account / loan / card。
     #
@@ -551,6 +535,12 @@ services:
     #   本專案設 false，所以不受影響。
 
     environment:
+      # Gateway 仍需透過 Eureka 找到 account / loan / card。
+      EUREKA_URL: http://eurekaserver:8070/eureka/
+
+      # 容器內將 trace 傳送至 Tempo。
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+
       # 限流計數器的位址。直接覆蓋 Spring 的 spring.data.redis.host，
       # 所以 gatewayserver 的 application.yaml「什麼都不用寫」——
       # Spring Boot 預設就是 localhost:6379，本機跑剛好對，容器跑由這行蓋掉。
@@ -571,12 +561,14 @@ services:
     # ⚠ redis 必須先就緒 —— 少了它 gateway「還是會啟動成功」，
     #   但第一個經過限流 filter 的請求就爆 Connection refused。
     #   那種「啟動正常、一打就死」比啟動失敗難查得多。
-    # ⚠ rabbitmq / configserver / eurekaserver 三項由 microservice-base 帶進來（合併，不是覆蓋）。
+    # ⚠ RabbitMQ 由 spring-bus-base 帶入；Eureka 在此明確等待就緒。
     #
     # ⚠ 這裡刻意「不」depends_on keycloak —— 用 jwk-set-uri 時公鑰是
     #   「第一次驗 token 才去抓」，不是啟動時，所以 gateway 比 Keycloak 早起
     #   完全沒問題。加了只會讓 gateway 白等 Keycloak 那段偏慢的啟動時間。
     depends_on:
+      eurekaserver:
+        condition: service_healthy
       redis:
         condition: service_healthy
 

@@ -54,6 +54,12 @@ spring:
           binder: kafka1
 
 management:
+  # Compose healthcheck 使用 /actuator/health；readiness/liveness 是 Kubernetes probes 才需要。
+  endpoints:
+    web:
+      exposure:
+        include: health
+
   # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
   # 🔑 對本服務特別重要：它沒有 HTTP 請求可以掛 correlation-id
   #    （那套是手寫的 CorrelationIdFilter，只處理 HTTP 標頭）。

@@ -59,8 +59,6 @@ services:
 
     # 等待共用基礎服務可用。
     depends_on:
-      rabbitmq:
-        condition: service_healthy
       configserver:
         condition: service_healthy
       eurekaserver:
