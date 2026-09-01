@@ -60,22 +60,6 @@ spring:
     username: guest
     password: guest
 
-# Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
-# 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
-eureka:
-  instance:
-    # 註冊實例的 IP，讓其他服務可以連線。
-    prefer-ip-address: true
-  client:
-    refresh:
-      # 停用 Eureka 設定的動態 refresh，避免重新綁定時破壞註冊資料。修改 eureka.* 設定後需重新啟動服務。
-      enable: false
-    register-with-eureka: true    # 將自己註冊到 Eureka
-    fetch-registry: true          # 取得並定期更新服務清單
-    service-url:
-      # Compose 使用 eurekaserver；本機預設使用 localhost。
-      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
-
   cloud:
     openfeign:
       client:
@@ -167,7 +151,7 @@ eureka:
       #   Spring Cloud Bus 也走 Stream，但它的 binding（springCloudBusInput/Output）
       #   沒有寫在下面 → 會去吃「預設 binder」。只有一個 binder 時 Spring 自動選那個；
       #   兩個時就不知道該選誰，啟動失敗而且錯誤訊息不會提到 Bus。
-      default-binder: rabbit1
+      defaultBinder: rabbit1
 
       # 🔑 Kafka 和 RabbitMQ 的連線設定都寫在下面 spring.kafka / spring.rabbitmq
       #    ——「同一層、同一種風格」。這裡只負責取名字和指定型別。
@@ -178,6 +162,12 @@ eureka:
           type: kafka
 
       bindings:
+        # Spring Cloud Bus 固定使用 RabbitMQ；業務事件仍可另外使用 Kafka。
+        springCloudBusInput:
+          binder: rabbit1
+        springCloudBusOutput:
+          binder: rabbit1
+
         # ── RabbitMQ：通知流程（指令，處理完就消失）────────────────────────
         accountSendCommunication-out-0: # 沒有函式，由 streamBridge.send 自己取
           destination: send-communication
@@ -252,9 +242,23 @@ eureka:
   kafka:
     bootstrap-servers: localhost:29092
 
-# /actuator/info 的內容。Eureka 儀表板上每個實例的 status page 連結預設就指向這裡，
-# 實例一多時，用來確認「這台到底是哪個服務、哪個版本」。
-# ⚠ 光寫這段看不到東西，還要下面的 management.info.env.enabled: true。
+# Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
+# 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
+eureka:
+  instance:
+    # 註冊實例的 IP，讓其他服務可以連線。
+    prefer-ip-address: true
+  client:
+    refresh:
+      # 停用 Eureka 設定的動態 refresh，避免重新綁定時破壞註冊資料。修改 eureka.* 設定後需重新啟動服務。
+      enable: false
+    register-with-eureka: true    # 將自己註冊到 Eureka
+    fetch-registry: true          # 取得並定期更新服務清單
+    service-url:
+      # Compose 使用 eurekaserver；本機預設使用 localhost。
+      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
+
+# /actuator/info 顯示服務名稱、描述與版本，方便辨識實例。
 info:
   app:
     name: "account"
@@ -262,13 +266,6 @@ info:
     version: "1.0.0"
 
 management:
-  # 讓上面那段 info: 真的顯示出來。
-  # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
-  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
-  info:
-    env:
-      enabled: true
-      
   endpoints:
     web:
       exposure:
@@ -280,6 +277,51 @@ management:
         # refresh 只適合可動態重綁定的設定；server.port、已建立的資料庫連線通常需重啟。
         # env、refresh、busrefresh、shutdown 可能暴露資訊或改變服務狀態，正式環境應加以保護。
         include: health,info,env,refresh,busrefresh,shutdown,circuitbreakers,circuitbreakerevents,prometheus,metrics
+
+  # 啟用 info.*，讓內容出現在 /actuator/info。
+  info:
+    env:
+      enabled: true
+
+  # shutdown 需設為 unrestricted 才能接受 POST；呼叫後會優雅關閉並註銷 Eureka。未加驗證，正式環境應保護或關閉此端點。
+  # 用法：Invoke-RestMethod http://localhost:8080/actuator/shutdown -Method Post
+  endpoint:
+    shutdown:
+      access: unrestricted
+
+    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
+    # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
+    # 壞掉的那一項會多一個 details.error 直接指出原因。
+    # 還能只查單項：/actuator/health/db、/actuator/health/discoveryComposite
+    #
+    # 🔑 discoveryComposite 特別有用 —— 它顯示「本服務自己看到的 Eureka 名冊」：
+    #        "applications": { "ACCOUNT": 1, "LOAN": 1, "CARD": 1 }
+    #    比開儀表板快，而且能分辨「Eureka 上沒有」和「我的本機快取還沒更新」。
+    #
+    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑、磁碟容量等內部資訊，
+    #   而這個端點是「沒有驗證就能打」的。正式環境改成 never（預設）或
+    #   when-authorized（需搭配 Spring Security）；折衷可用 show-components: always。
+    health:
+      show-details: always
+
+    # /actuator/env 預設把「所有」值遮成 ****** （Spring Boot 3.0 起的行為 ——
+    # 它分不清哪個是機密，所以一律遮）。只看得到「值來自哪一層」，看不到值本身。
+    #
+    # 🔑 開了之後才能看到「被覆蓋掉的值」，這是 env 最有用的地方：
+    #       spring.rabbitmq.host
+    #         systemEnvironment   value=rabbitmq    ← compose 設的（贏）
+    #         application.yaml    value=localhost   ← 被蓋掉的，照樣列出來
+    #    容器裡 compose 的 environment 落在 systemEnvironment 那層，
+    #    優先權比 Config Server 高 —— 這也是為什麼它能當除錯後門。
+    #
+    # ⚠⚠ 只適合本機開發 ⚠⚠
+    #   開了會印出明文的資料庫連線字串、解密後的 email、RabbitMQ 密碼，
+    #   而這個端點沒有任何驗證。正式環境改成 NEVER（預設）——
+    #   或連 env 一起從上面的 exposure.include 移除（它是那份清單裡唯一
+    #   「沒有任何元件依賴」的端點，拿掉不影響系統行為）。
+    #   WHEN_AUTHORIZED 要搭配 Spring Security 才有意義，沒裝等於 NEVER。
+    env:
+      show-values: ALWAYS
 
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
@@ -326,67 +368,11 @@ management:
         enabled: false
 
   # 把斷路器狀態併進 /actuator/health（預設是關的）。
+  # ⚠ management.health.* 是「健康指標的開關」，management.endpoint.* 才是
+  #   「端點自己的行為」（show-details / show-values）。放錯層不會報錯，只是沒效果。
   health:
     circuitbreakers:
       enabled: true
-
-  # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
-  #     none          端點不存在（連 bean 都不會建）
-  #     read-only     只能 GET
-  #     unrestricted  POST / DELETE 也放行  ← shutdown 是 POST，非它不可
-  #
-  # 🔑 全部端點裡只有 shutdown 和 heapdump 預設關閉（官方文件明列的兩個例外）——
-  #    一個能關掉服務，一個能把整包記憶體 dump 出來。
-  #
-  # 🔑 為什麼微服務特別需要它：優雅關閉會「主動通知 Eureka 註銷」，儀表板上馬上消失。
-  #    直接按 IDE 停止鈕或 kill -9 的話，要等心跳超時（90 秒）再加上驅逐排程
-  #    （每 60 秒掃一次）—— 中間那幾分鐘，別的服務還是會把請求送到已經死掉的實例上。
-  #    這就是「優雅關閉」在微服務裡的真正價值：不是為了資料完整性，是為了不讓流量打到墓碑。
-  #
-  # ⚠ 這是「沒有驗證的 POST，任何人打了服務就掛掉」。正式環境要用 Spring Security
-  #   保護或直接關掉（上面的 env 端點會印出所有設定值，性質相同）。
-  # ⚠ 容器裡打了它 → 應用程式退出 → 容器變 Exited(0)。compose 目前沒設 restart: 政策，
-  #   所以要手動 docker compose up -d 才會回來。
-  #
-  # 用法：Invoke-RestMethod http://localhost:8080/actuator/shutdown -Method Post
-  endpoint:
-    shutdown:
-      access: unrestricted
-
-    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
-    # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
-    # 壞掉的那一項會多一個 details.error 直接指出原因。
-    # 還能只查單項：/actuator/health/db、/actuator/health/discoveryComposite
-    #
-    # 🔑 discoveryComposite 特別有用 —— 它顯示「本服務自己看到的 Eureka 名冊」：
-    #        "applications": { "ACCOUNT": 1, "LOAN": 1, "CARD": 1 }
-    #    比開儀表板快，而且能分辨「Eureka 上沒有」和「我的本機快取還沒更新」。
-    #
-    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑、磁碟容量、
-    #   RabbitMQ 版本等內部資訊，而這個端點是「沒有驗證就能打」的。
-    #   正式環境改成 never（預設）或 when-authorized（需搭配 Spring Security）；
-    #   折衷可用 show-components: always —— 看得到「是 rabbit 壞了」但不含 details。
-    health:
-      show-details: always
-
-    # /actuator/env 預設把「所有」值遮成 ****** （Spring Boot 3.0 起的行為 ——
-    # 它分不清哪個是機密，所以一律遮）。只看得到「值來自哪一層」，看不到值本身。
-    #
-    # 🔑 開了之後才能看到「被覆蓋掉的值」，這是 env 最有用的地方：
-    #       spring.rabbitmq.host
-    #         systemEnvironment   value=rabbitmq    ← compose 設的（贏）
-    #         application.yaml    value=localhost   ← 被蓋掉的，照樣列出來
-    #    容器裡 compose 的 environment 落在 systemEnvironment 那層，
-    #    優先權比 Config Server 高 —— 這也是為什麼它能當除錯後門。
-    #
-    # ⚠⚠ 只適合本機開發 ⚠⚠
-    #   開了會印出明文的資料庫連線字串、解密後的 email、RabbitMQ 密碼，
-    #   而這個端點沒有任何驗證。正式環境改成 NEVER（預設）——
-    #   或連 env 一起從上面的 exposure.include 移除（它是那份清單裡唯一
-    #   「沒有任何元件依賴」的端點，拿掉不影響系統行為）。
-    #   WHEN_AUTHORIZED 要搭配 Spring Security 才有意義，沒裝等於 NEVER。
-    env:
-      show-values: ALWAYS
 
 
 
