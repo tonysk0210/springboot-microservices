@@ -35,60 +35,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- Eureka Server —— 註冊中心本體。提供兩樣東西：
-                 /eureka/*    客戶端註冊與查詢用的 REST API（機器在用）
-                 /            儀表板網頁（人在看，http://localhost:8070）
-
-             ⚠ 必須搭配 @EnableEurekaServer（見 EurekaserverApplication）。
-               🔑 這點跟 client 端剛好相反 —— client 的 @EnableEurekaClient 在 5.0.2
-                  已被移除、加了編譯不過；server 這個註解則「還是必要的」，
-                  少了它服務照樣啟動，但 8070 上什麼都沒有。
-
-             ⚠ 它內含一份 eureka-client（Eureka 天生設計成叢集，每台 Server 靠內建的
-               client 去跟別台互相複製名冊）。我們只跑一台，所以 application.yml 要用
-               eureka.client.register-with-eureka / fetch-registry: false 把它關掉。
-               不關的話會一直嘗試連 localhost:8761 並噴 TransportException。
-
-             🔑 它會自己帶進 spring-boot-starter-web 和 spring-boot-starter-freemarker
-                （儀表板是 Freemarker 樣板寫的），所以本 pom 不用另外加 web starter。
-                另外也帶進 spring-cloud-starter-loadbalancer 和 Jersey 3。
-
-             ⚠ 啟動時這兩則訊息都來自這條依賴，是雜訊不是錯誤：
-                 WARNING: sun.misc.Unsafe::objectFieldOffset ... by xstream
-                     Eureka 用 XStream 做 XML 序列化，它在 Java 25 上碰了即將移除的
-                     Unsafe API。只能等 XStream 更新，無法從這裡消掉。
-                 INFO: Failed to set up a Bean Validation provider
-                     classpath 上沒有 hibernate-validator。Eureka Server 用不到，
-                     不用為了消掉它去加 spring-boot-starter-validation。
-
-             ⚠ 傳遞依賴 com.netflix.eureka:eureka-client:2.0.6 把 httpclient 釘死在
-               4.5.3（CVE-2020-13956，URI 解析問題，CVSS 5.3）。Spring Boot 的 BOM
-               只管 httpclient5，管不到 4.x 這條線。要消掉掃描器警告就在下方
-               dependencyManagement 補一筆 httpclient:4.5.14（純修補版，API 相容）。 -->
+        <!-- Eureka Server：提供服務註冊、查詢 API 與管理儀表板。
+             必須搭配 @EnableEurekaServer 才會啟用 Server 功能。
+             本專案只啟動單一 Server，因此 application.yml 關閉
+             register-with-eureka 與 fetch-registry，避免它把自己當成 Client。
+             此 starter 也會傳遞引入 Web、儀表板與 LoadBalancer 相關依賴。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
-        </dependency>
-
-        <!-- Spring Cloud Bus + RabbitMQ —— 提供 /actuator/busrefresh，也讓本服務收得到
-             別人發的 refresh 廣播。加它是為了「五個服務行為一致」，實際效益有限：
-
-             ⚠ eurekaserver 的設定幾乎都是「啟動時綁死、refresh 改不動」的：
-                   server.port                  Netty 已綁定
-                   eureka.instance.hostname     DiscoveryClient 已初始化
-                   eureka.client.*              同上
-               而且 configyml/eurekaserver.yml 是空的，遠端也沒東西可以下發。
-               🔑 真正 refresh 得動的只有 logging.level.* —— 好處是可以遠端把 Eureka 的
-                  log 調成 DEBUG 除錯，不用重啟。
-
-             ⚠ 需要 RabbitMQ 在跑，否則背景會無限重連（不影響啟動，但 log 很吵）。
-             ⚠ 容器裡要由 compose 設 SPRING_RABBITMQ_HOST: rabbitmq ——
-               預設是 localhost，而容器裡的 localhost 是容器自己。
-               所以 compose.yml 的 eurekaserver 要改成繼承 common.yml 的 configserver-base
-               （那一層帶這個環境變數和 depends_on rabbitmq），不再只繼承 resource-limits。 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
         <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
              Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
@@ -111,6 +65,12 @@
                 <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- 覆寫 Eureka 傳遞引入的舊版 HttpClient，修正 CVE-2020-13956。 -->
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>4.5.14</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

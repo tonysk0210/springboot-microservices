@@ -47,52 +47,20 @@ spring:
     username: guest
     password: guest
 
-
-
-# =============================================================================
-#  Eureka Client —— 向註冊中心報到
-#
-#  啟動時做兩件事：把自己登記上去、把整份名冊抓回本機快取。
-#  之後 account / card 要呼叫 loan 就不必寫死 http://loan:8090，
-#  改用服務名（= spring.application.name，儀表板上顯示成大寫 LOAN）。
-#
-#  儀表板：http://localhost:8070
-#  ⚠⚠ loan/pom.xml 目前「還沒有」spring-cloud-starter-netflix-eureka-client ⚠⚠
-#     所以這整段現在是「寫了但不生效」—— 不會註冊、也不會有任何錯誤訊息。
-#     補上那個依賴之後才會開始運作。
-# =============================================================================
+# Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
+# 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
 eureka:
   instance:
-    # 登記時留 IP，不留主機名。
-    # 🔑 別的服務拿到這串字會直接組成 URL 去打 —— 主機名在對方那邊解析不出來就失敗，
-    #    而且錯誤看起來像網路問題，不像設定問題，很難查。
-    # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
-    #     容器 → 容器  ✅ 通
-    #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:8090）
+    # 註冊實例的 IP，讓其他服務可以連線。
     prefer-ip-address: true
-
   client:
-    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
-    #   症狀：WARN InstanceInfo - Passed in hostname is blank, not setting it
-    #        → registration failure with status code 400 → 每 30 秒重試永遠失敗
-    #   原因：hostname / instanceId 等欄位預設是程式碼算出來的、不來自屬性，
-    #        設定一有變動就會被 ConfigurationPropertiesRebinder 清空。
-    #        這個開關讓 Eureka client 整組退出 refresh 路徑。
-    #   完整說明見 account 的 application.yaml。
+    # 停用 Eureka 設定的動態 refresh，避免重新綁定時破壞註冊資料。修改 eureka.* 設定後需重新啟動服務。
     refresh:
       enable: false
-
-    # 這兩個本來就預設 true，寫出來是為了跟 eurekaserver 那份（都是 false）對照。
-    # 兩者完全獨立，想像成公司通訊錄：
-    register-with-eureka: true    # 把我的分機登記進去（讓別人找得到我）
-    fetch-registry: true          # 影印一份通訊錄回座位（讓我找得到別人）
-    #
-    # 🔑 fetch-registry 是「客戶端負載平衡」的地基 —— 名冊在本機有快取（預設 30 秒
-    #    更新一次），所以呼叫別人時不必先問 Eureka，直接從本機名單挑一個實例打。
-    #    這也是 Eureka 掛掉後服務還能撐一陣子的原因。
-
+    register-with-eureka: true    # 將自己註冊到 Eureka
+    fetch-registry: true          # 取得並定期更新服務清單
     service-url:
-      # 容器化時由 compose 設：EUREKA_URL: http://eurekaserver:8070/eureka/
+      # Compose 使用 eurekaserver；本機預設使用 localhost。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
 
 # /actuator/info 的內容。Eureka 儀表板上每個實例的 status page 連結預設就指向這裡，

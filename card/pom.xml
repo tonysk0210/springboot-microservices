@@ -89,6 +89,9 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
+        <!-- Eureka Client：啟動時註冊自己，並定期快取服務清單。
+             需設定 eureka.client.service-url.defaultZone；服務名稱由
+             Spring Cloud LoadBalancer 解析成可用實例，不需額外加啟用註解。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
@@ -142,6 +145,12 @@
                 <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- 覆寫 Eureka 傳遞引入的舊版 HttpClient，修正 CVE-2020-13956。 -->
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>4.5.14</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

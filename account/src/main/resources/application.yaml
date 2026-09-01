@@ -60,6 +60,22 @@ spring:
     username: guest
     password: guest
 
+# Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
+# 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
+eureka:
+  instance:
+    # 註冊實例的 IP，讓其他服務可以連線。
+    prefer-ip-address: true
+  client:
+    refresh:
+      # 停用 Eureka 設定的動態 refresh，避免重新綁定時破壞註冊資料。修改 eureka.* 設定後需重新啟動服務。
+      enable: false
+    register-with-eureka: true    # 將自己註冊到 Eureka
+    fetch-registry: true          # 取得並定期更新服務清單
+    service-url:
+      # Compose 使用 eurekaserver；本機預設使用 localhost。
+      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
+
   cloud:
     openfeign:
       client:
@@ -236,72 +252,6 @@ spring:
   kafka:
     bootstrap-servers: localhost:29092
 
-
-
-
-# =============================================================================
-#  Eureka Client —— 向註冊中心報到
-#
-#  啟動時做兩件事：把自己登記上去、把整份名冊抓回本機快取。
-#  之後 loan / card 要呼叫 account 就不必寫死 http://account:8080，
-#  改用服務名（= spring.application.name，儀表板上顯示成大寫 ACCOUNT）。
-#
-#  儀表板：http://localhost:8070
-#  ⚠ 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client（已加）。
-#    少了它，這整段會被安靜忽略，不報錯。
-# =============================================================================
-eureka:
-  instance:
-    # 登記時留 IP，不留主機名。
-    # 🔑 別的服務拿到這串字會直接組成 URL 去打 —— 主機名在對方那邊解析不出來就失敗，
-    #    而且錯誤看起來像網路問題，不像設定問題，很難查。
-    # ⚠ 容器裡登記的會是 bridge 網路的 IP（172.18.0.x）：
-    #     容器 → 容器  ✅ 通
-    #     Windows 瀏覽器 / Postman → 那個 IP  ❌ 不通（還是要走 localhost:8080）
-    prefer-ip-address: true
-
-  client:
-    # ⚠⚠ 這一行不能省，少了它「push 之後服務會從 Eureka 上消失」⚠⚠
-    #
-    # 症狀（實測 2026-08-05 01:02，card 的 log）：
-    #     RefreshListener - Received remote refresh request.      ← push 觸發的廣播
-    #     Shutting down DiscoveryClient ... deregister status: 200 ← 舊的乾淨註銷
-    #     WARN InstanceInfo - Passed in hostname is blank, not setting it   ← 元凶
-    #     registration failure with status code 400                ← Eureka 拒收沒有 hostname 的實例
-    #     （之後每 30 秒重試一次，永遠 400，直到重啟 JVM）
-    #
-    # 🔑 原因：eureka.instance / eureka.client 的設定物件是 @ConfigurationProperties，
-    #    而 hostname、ipAddress、instanceId 這些欄位預設是「在 @Bean 方法裡用 InetUtils
-    #    算出來」的，不來自任何屬性。
-    #        push → Config Server 內容變 → 屬性真的有變動 → EnvironmentChangeEvent
-    #        → ConfigurationPropertiesRebinder 重新綁定整個 bean
-    #        → 只從屬性重建 → 那些「算出來的」欄位全變 null/空
-    #        → 心跳與註冊都失敗 → 被 Eureka 驅逐 → Gateway 回 503
-    #
-    # 這個開關讓 Eureka client「整組退出 refresh 路徑」，就不會被 rebind 破壞。
-    # 官方描述：If disabled none of the Eureka client properties will be refreshable.
-    # ⚠ 代價：改 eureka.* 設定要重啟才生效 —— 但那些本來就是啟動時綁死的
-    #   （server.port、hostname、service-url 都不可能熱更新），實質上沒有損失。
-    #
-    # ⚠ 只有「設定真的改變」才會踩到。打 /actuator/refresh 若回傳 []（沒有 key 變動）
-    #   不會發 EnvironmentChangeEvent，也就不會 rebind —— 所以那樣測不出問題，
-    #   一定要 push 一個會改到 Config Server 內容的 commit 才驗得出來。
-    refresh:
-      enable: false
-
-    # 這兩個本來就預設 true，寫出來是為了跟 eurekaserver 那份（都是 false）對照。
-    # 兩者完全獨立，想像成公司通訊錄：
-    register-with-eureka: true    # 把我的分機登記進去（讓別人找得到我）
-    fetch-registry: true          # 影印一份通訊錄回座位（讓我找得到別人）
-    #
-    # 🔑 fetch-registry 是「客戶端負載平衡」的地基 —— 名冊在本機有快取（預設 30 秒
-    #    更新一次），所以呼叫別人時不必先問 Eureka，直接從本機名單挑一個實例打。
-    #    這也是 Eureka 掛掉後服務還能撐一陣子的原因。
-
-    service-url:
-      # 容器化時由 compose 設：EUREKA_URL: http://eurekaserver:8070/eureka/
-      defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
-
 # /actuator/info 的內容。Eureka 儀表板上每個實例的 status page 連結預設就指向這裡，
 # 實例一多時，用來確認「這台到底是哪個服務、哪個版本」。
 # ⚠ 光寫這段看不到東西，還要下面的 management.info.env.enabled: true。
@@ -312,6 +262,13 @@ info:
     version: "1.0.0"
 
 management:
+  # 讓上面那段 info: 真的顯示出來。
+  # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
+  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
+  info:
+    env:
+      enabled: true
+      
   endpoints:
     web:
       exposure:
@@ -431,12 +388,7 @@ management:
     env:
       show-values: ALWAYS
 
-  # 讓上面那段 info: 真的顯示出來。
-  # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
-  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
-  info:
-    env:
-      enabled: true
+
 
 # Resilience4j Circuit Breaker 的共用預設設定。
 # CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；

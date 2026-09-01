@@ -82,25 +82,20 @@ spring:
   reactor:
     context-propagation: auto
 
+# Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
+# 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
 eureka:
   instance:
-    # 容器裡登記的是 bridge IP（172.18.0.x）—— 容器間通，Windows 連不到。
+    # 向 Eureka 註冊實例 IP，讓 Gateway 可找到其他服務。
     prefer-ip-address: true
-
   client:
-    # 不能省 —— 少了它 push 之後服務會從 Eureka 消失（rebind 清空 hostname，
-    #   註冊回 400 且無限重試）。診斷見 account 的 application.yaml。
+    # 停用 Eureka 設定的動態 refresh，避免重新綁定時破壞註冊資料。# 修改 eureka.* 設定後需重新啟動服務。
     refresh:
       enable: false
-
-    # fetch-registry 才是關鍵 —— 路由的 lb://ACCOUNT 靠它換成實際位址。
-    #    register 只是讓儀表板看得到。
-    register-with-eureka: true
-    fetch-registry: true
-
+    register-with-eureka: true    # 將 Gateway 註冊到 Eureka
+    fetch-registry: true          # 取得服務清單，解析 lb://SERVICE 路由
     service-url:
-      # 結尾 /eureka/ 不能省（/ 是儀表板網頁）。
-      # defaultZone 必須駝峰式，寫成 default-zone 不報錯只失效。
+      # Compose 使用 eurekaserver；本機預設使用 localhost。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
 
 info:

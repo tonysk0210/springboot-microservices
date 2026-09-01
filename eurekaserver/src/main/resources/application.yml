@@ -1,89 +1,50 @@
-# =============================================================================
-#  Eureka Server —— 服務註冊中心（電話簿）。儀表板 http://localhost:8070
-#  服務啟動時來這裡登記自己，要呼叫別人時來這裡查地址。
-#
-#  專案 port 分配（別再撞）：
-#      5672 / 15672  rabbitmq        8071  configserver     8090  loan
-#      8070          eurekaserver    8072  gatewayserver    9000  card
-#                                    8080  account
-# =============================================================================
+# Eureka Server：提供服務註冊、查詢 API 與管理頁面。
 
 server:
-  # ⚠ 不能省，預設 8080 會跟 account 撞。下面 defaultZone 會引用它。
-  port: 8070
-
+  port: 8070                         # Eureka 管理頁面：http://localhost:8070
 spring:
   application:
     name: eurekaserver
 
-# =============================================================================
-#  單機模式
-#  🔑 為什麼 Eureka Server 需要一組 eureka.client.*？因為 Eureka 天生設計成叢集 ——
-#     每台 Server 靠內建的 client 去跟別台互相複製名冊。只跑一台就要把它關掉。
-# =============================================================================
+# 單機模式：Eureka 不向自己註冊，也不下載其他 Eureka 的清單。
 eureka:
   instance:
-    # 自報家門的名字（defaultZone 引用它，儀表板也顯示它）。
-    # ⚠ 容器化時由 compose 設成服務名 EUREKA_HOST: eurekaserver ——
-    #   否則客戶端拿到 localhost，而容器裡的 localhost 是容器自己。
+    # Compose 以 EUREKA_HOST=eurekaserver 覆寫；本機執行時使用 localhost。
     hostname: ${EUREKA_HOST:localhost}
-
   client:
-    register-with-eureka: false    # 不把自己登記進名冊（預設 true，只是雜訊）
-    fetch-registry: false          # 不去跟別台下載名冊（預設 true，但沒有別台）
-
+    register-with-eureka: false      # 不註冊自己
+    fetch-registry: false            # 不從其他 Eureka 取得清單
     service-url:
-      # 「別台 Eureka 在哪」，展開後就是自己。
-      # 🔑 指向自己的用意：Eureka 會把清單裡「等於我自己」的濾掉 → peer 清單為空 → 不同步。
-      # ⚠ 不寫這行會退回預設的 8761，那個不等於自己 → 被當成真 peer → 一直噴
-      #   TransportException: Cannot execute request on any known server
-      # ⚠⚠ defaultZone 必須駝峰式。寫成 default-zone「不報錯只失效」——
-      #   它是 Map 的 key 不是屬性名，Spring 的寬鬆綁定管不到。
+      # Eureka Server 的 API 位址，Client 用它註冊與查詢服務。
+      # 目前是單機模式，因為 register/fetch 都是 false，所以不會主動連線。
       defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
-
-# /actuator/info 的內容。⚠ 還要下面的 management.info.env.enabled 才顯示得出來。
-# ⚠ eurekaserver 不註冊自己，所以這份 info 不會出現在儀表板，只能手動打 /actuator/info。
-info:
-  app:
-    name: "eurekaserver"
-    description: "Eureka Server App"
-    version: "1.0.0"
 
 management:
   endpoints:
     web:
       exposure:
-        # Actuator 預設「只開 health」，其他要明確列出來。
-        #   health / info / refresh / busrefresh
-        # ⚠ refresh 對本服務用途很窄 —— 設定幾乎都是啟動時綁死的，
-        #   真正改得動的只有 logging.level.*（遠端調 log 除錯）。
-        # ⚠ 刻意不加 env（account 有）—— 它會印出所有設定值，這裡沒必要多一個曝光面。
-        include: health,info,refresh,busrefresh,prometheus,metrics
+        # health 健康狀態；info 基本資訊；prometheus 提供 Prometheus 指標；
+        # metrics 可查看單項監控指標。
+        include: health,info,prometheus,metrics
 
-  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
-  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
   metrics:
+    # 讓監控系統區分不同服務的指標。
     tags:
       application: ${spring.application.name}
 
   endpoint:
-    # 不開的話 /actuator/health 只回 {"status":"UP"}，出事時不知道是哪一項壞的。
-    # 也能只查單項：/actuator/health/discoveryComposite
-    # ⚠ 只適合開發環境（details 含本機路徑等內部資訊，端點沒有驗證）。
-    #   正式環境用 never，或折衷 show-components: always（看得到哪項壞但不含 details）。
     health:
+      # 開發環境顯示各健康檢查細節；正式環境建議改為 never。
       show-details: always
 
-  # 讓上面那段 info: 真的顯示出來。
-  # ⚠ 沒有這行 /actuator/info 只回空的 {}，而且沒有任何錯誤或警告 ——
-  #   info.* 由 env contributor 提供，而它預設是關的（Spring Boot 2.6 起的行為）。
   info:
+    # 讓 info.app 內容出現在 /actuator/info。
     env:
       enabled: true
 
-# =============================================================================
-#  刻意「沒有」的設定
-#    exposure.include: "*"        會連 /actuator/env、/actuator/heapdump 一起開，資安地雷
-#    health.probes.enabled        K8s 的 liveness / readiness 探針，Boot 偵測到 K8s 會自動開。
-#                                 現在用 Docker 自己的 healthcheck:，等走到 K8s 再補。
-# =============================================================================
+# /actuator/info 顯示的基本資訊。
+info:
+  app:
+    name: "eurekaserver"
+    description: "Eureka Server App"
+    version: "1.0.0"
