@@ -9,22 +9,18 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 
 /**
- * 呼叫 loan 服務的宣告式客戶端 —— 只寫介面，實作由 Feign 在啟動時產生成 Bean。
- *
- * <p>⚠ 需要主類別的 {@code @EnableFeignClients}（AccountApplication 已加）。
- * 少了它介面不會被掃到，而且沒有錯誤訊息，只有注入時的 NoSuchBeanDefinitionException。
+ * 呼叫 Loan 服務的宣告式客戶端。
+ * name = "loan" 必須對應 Loan 的 spring.application.name（Eureka 上顯示為 LOAN）。
+ * Feign 會依此服務名稱從 Eureka 取得實例，再由 LoadBalancer 選擇一台。
  */
-// name = Eureka 上的服務名（= loan 的 spring.application.name），必須是單數 "loan"。
-// ⚠ 寫錯的症狀是「啟動正常，呼叫才炸」：No servers available for service: xxx
-// 🔑 加 url 就跳過服務發現，直接打固定位址（適合呼叫外部 API）：
-//    @FeignClient(name = "loan", url = "${loan.base-url:http://localhost:8090}")
 @FeignClient(name = "loan", fallback = LoanFallback.class)
 public interface LoanFeignClient {
 
-    // ⚠ 路徑要完整，含 loan 那邊 @RequestMapping("/api") 的前綴 —— Feign 不會幫你補。
-    // ⚠ @RequestParam 不可省略：Feign 會把「沒有註解的參數」當成請求 body，而 GET 不該有 body。
+    // 對應 LoanController 的 @RequestMapping("/api") + @GetMapping("/fetch-loan")。
+    // 因此完整請求路徑為 GET /api/fetch-loan。
     @GetMapping("/api/fetch-loan")
     ResponseEntity<LoanDto> fetchLoanDetails(
             @RequestParam String mobileNumber,
+            // Feign 會將呼叫端傳入的 eureka / k8s / direct 寫入 HTTP Header，供下游 log 觀測來源；此標記只用於追蹤，不會決定實際的 LoadBalancer。
             @RequestHeader("X-Load-Balancing-Source") String loadBalancingSource);
 }

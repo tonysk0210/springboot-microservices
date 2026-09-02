@@ -3,8 +3,7 @@ package com.example.account.dto;
 import lombok.Data;
 
 /**
- * card 服務回傳的卡片資料，供 {@code CardFeignClient} 反序列化用。
- * 設計說明同 {@link LoanDto}（客戶端副本、不共用 jar、不放驗證註解）。
+ * Card 服務回傳的資料，供 {@code CardFeignClient} 反序列化使用。
  */
 @Data
 public class CardDto {

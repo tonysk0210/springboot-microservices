@@ -246,7 +246,7 @@ spring:
 # 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
 eureka:
   instance:
-    # 註冊實例的 IP，讓其他服務可以連線。
+    # 註冊實例的 IP，讓其他服務可以連線。只影響 Eureka 服務發現取得的實例位址
     prefer-ip-address: true
   client:
     refresh:
@@ -288,18 +288,8 @@ management:
     shutdown:
       access: unrestricted
 
-    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
-    # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
-    # 壞掉的那一項會多一個 details.error 直接指出原因。
-    # 還能只查單項：/actuator/health/db、/actuator/health/discoveryComposite
-    #
-    # 🔑 discoveryComposite 特別有用 —— 它顯示「本服務自己看到的 Eureka 名冊」：
-    #        "applications": { "ACCOUNT": 1, "LOAN": 1, "CARD": 1 }
-    #    比開儀表板快，而且能分辨「Eureka 上沒有」和「我的本機快取還沒更新」。
-    #
-    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑、磁碟容量等內部資訊，
-    #   而這個端點是「沒有驗證就能打」的。正式環境改成 never（預設）或
-    #   when-authorized（需搭配 Spring Security）；折衷可用 show-components: always。
+    # 顯示健康檢查明細：binders（Kafka/RabbitMQ）、clientConfigServer、db、
+    # discoveryComposite（Eureka 名冊）、diskSpace、liveness/readiness、SSL 等。
     health:
       show-details: always
 

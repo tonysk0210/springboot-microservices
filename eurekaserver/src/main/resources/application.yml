@@ -34,7 +34,8 @@ management:
 
   endpoint:
     health:
-      # 開發環境顯示各健康檢查細節；正式環境建議改為 never。
+      # 顯示 Eureka 名冊、磁碟空間、liveness/readiness、SSL 等健康檢查細節。
+      # discoveryComposite 可確認 Eureka 目前的服務清單；正式環境建議改為 never。
       show-details: always
 
   info:
