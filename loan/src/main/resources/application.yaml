@@ -63,9 +63,7 @@ eureka:
       # Compose 使用 eurekaserver；本機預設使用 localhost。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
 
-# /actuator/info 的內容。Eureka 儀表板上每個實例的 status page 連結預設就指向這裡，
-# 實例一多時，用來確認「這台到底是哪個服務、哪個版本」。
-# ⚠ 光寫這段看不到東西，還要下面的 management.info.env.enabled: true。
+# /actuator/info（Eureka status page 預設連結）；需啟用 management.info.env.enabled 才會顯示。
 info:
   app:
     name: "loan"
@@ -80,6 +78,16 @@ management:
         # refresh 只更新本服務；busrefresh 經 RabbitMQ 通知所有 Bus 服務；shutdown 優雅關閉。
         # prometheus/metrics 提供監控指標。
         include: health,info,env,refresh,busrefresh,shutdown,prometheus,metrics
+
+  # 啟用 info.*，讓內容出現在 /actuator/info。
+  info:
+    env:
+      enabled: true
+
+  # 允許 POST http://localhost:8090/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
+  endpoint:
+    shutdown:
+      access: unrestricted
 
   # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
   #     none          端點不存在（連 bean 都不會建）
@@ -144,9 +152,7 @@ management:
       export:
         enabled: false
 
-  endpoint:
-    shutdown:
-      access: unrestricted
+
 
     # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
     # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
@@ -166,9 +172,3 @@ management:
     env:
       show-values: ALWAYS
 
-  # 讓上面那段 info: 真的顯示出來。
-  # info.* 是由「env contributor」提供的，而它預設是關的。Spring Boot 4.1 官方文件：
-  # ⚠ 沒有這行，/actuator/info 只會回空的 {}，而且不會有任何錯誤或警告。
-  info:
-    env:
-      enabled: true

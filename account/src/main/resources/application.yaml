@@ -258,7 +258,7 @@ eureka:
       # Compose 使用 eurekaserver；本機預設使用 localhost。
       defaultZone: ${EUREKA_URL:http://localhost:8070/eureka/}
 
-# /actuator/info 顯示服務名稱、描述與版本，方便辨識實例。
+# /actuator/info（Eureka status page 預設連結）；需啟用 management.info.env.enabled 才會顯示。
 info:
   app:
     name: "account"
@@ -283,8 +283,7 @@ management:
     env:
       enabled: true
 
-  # shutdown 需設為 unrestricted 才能接受 POST；呼叫後會優雅關閉並註銷 Eureka。未加驗證，正式環境應保護或關閉此端點。
-  # 用法：Invoke-RestMethod http://localhost:8080/actuator/shutdown -Method Post
+  # 允許 POST http://localhost:8080/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
   endpoint:
     shutdown:
       access: unrestricted
