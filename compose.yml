@@ -232,41 +232,29 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
-  #  eurekaserver —— 服務註冊中心（單機模式）
-  #  儀表板 http://localhost:8070
+  #  eurekaserver —— 服務註冊中心（單機模式）儀表板 http://localhost:8070
   # ---------------------------------------------------------------------------
   eurekaserver:
-    # image 由 Jib 建：cd eurekaserver && ./mvnw compile jib:dockerBuild
     image: anthonysk/eurekaserver:0.0.1-SNAPSHOT
     container_name: eurekaserver-ms
     ports:
       - "8070:8070"
 
     environment:
-      # ⚠⚠ 最關鍵的一行 ⚠⚠
-      #   application.yml 寫的是 hostname: ${EUREKA_HOST:localhost}，
-      #   不設的話 Eureka 會用 localhost 算出自己的 defaultZone。
-      #   單機模式下它「還是會動」（peer 清單照樣是空的），但儀表板顯示的
-      #   自身位址會是 localhost，之後做 peer replication 時一定出錯。
+      # Compose 內的 Eureka 主機名稱；未設定時 application.yml 預設為 localhost。
       EUREKA_HOST: eurekaserver
 
     healthcheck:
-      # Jib + alpine 基底 → 有 BusyBox wget，寫法跟 configserver / account / card 相同。
+      # 使用 image 內建的 wget 檢查 Eureka 健康端點。
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8070/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
-    # 用 spring-bus-base 而不是 microservice-base —— 前者帶
-    # SPRING_RABBITMQ_HOST、depends_on rabbitmq；後者還會帶 EUREKA_URL 和
-    # depends_on eurekaserver（自己等自己，死鎖）。
-    #
-    # ⚠ RabbitMQ 那層是「加了 spring-cloud-starter-bus-amqp 之後才需要」的。
-    #   沒有 SPRING_RABBITMQ_HOST 的話容器裡會去連 localhost:5672（= 容器自己），
-    #   背景無限重連，log 很吵。
+
     extends:
       file: common.yml
-      service: spring-bus-base
+      service: resource-limits
 
   # ---------------------------------------------------------------------------
   #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
