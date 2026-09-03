@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RequestParam;
  * 呼叫 Loan 服務的宣告式客戶端。
  * name = "loan" 必須對應 Loan 的 spring.application.name（Eureka 上顯示為 LOAN）。
  * Feign 會依此服務名稱從 Eureka 取得實例，再由 LoadBalancer 選擇一台。
+ * Eureka 未啟動且沒有可用快取時，呼叫會失敗並改由 {@link LoanFallback} 回傳 null。
+ * <p>
+ * 發生 HTTP 錯誤、連線／逾時失敗或斷路器開啟時，會執行 {@link LoanFallback}；fallback 回傳空資料，讓 Account 仍可完成整合查詢。
  */
 @FeignClient(name = "loan", fallback = LoanFallback.class)
 public interface LoanFeignClient {

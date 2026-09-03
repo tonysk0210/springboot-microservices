@@ -61,7 +61,7 @@ services:
     # 使用 mysql service；帳密由 common.yml 提供，這裡指定 accountdb 資料庫。
     environment:
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
-      # 透過 Compose DNS 直接呼叫 Loan、Card，不使用 Eureka。
+      # loan、card 是 compose.yml 的 service 名稱，也是 Compose network 內的 DNS 名稱；直接透過它們呼叫下游服務，不使用 Eureka。
       KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
       KUBERNETES_CARD_BASE_URL: "http://card:9000"
       # 容器使用 kafka:9092；本機程式使用 localhost:29092。

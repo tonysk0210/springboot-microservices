@@ -4,7 +4,7 @@ import com.example.account.dto.CustomerAccLoanCardDetailDto;
 
 public interface ICustomerService {
 
-    CustomerAccLoanCardDetailDto fetchCustomerAccLoanCardDetailDto(String mobileNumber);
+    CustomerAccLoanCardDetailDto fetchCustomerAccLoanCardDetailEurekaDto(String mobileNumber);
 
     CustomerAccLoanCardDetailDto fetchCustomerAccLoanCardDetailKubernetesDto(String mobileNumber);
 }

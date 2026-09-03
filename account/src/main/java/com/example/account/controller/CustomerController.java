@@ -32,32 +32,38 @@ public class CustomerController {
     private final ICustomerService customerService;
 
     @Operation(
-            summary = "查詢客戶完整資料",
+            summary = "透過 Eureka 查詢客戶完整資料",
             description = "以手機號碼一次取回帳戶、貸款、信用卡三份資料。"
                     + "帳戶來自 account 自己的資料庫，貸款與信用卡經由 Feign 呼叫 loan / card 服務取得；"
                     + "下游服務無資料或暫時不可用時，會由 Feign fallback 處理，對應欄位回傳 null。"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "查詢成功；loan 或 card 無資料或暫時不可用時，對應欄位為 null",
+                    headers = @Header(name = "X-Cross-Service-Discovery",
+                            description = "跨服務查找方式，固定為 eureka",
+                            schema = @Schema(type = "string", example = "eureka")),
                     content = @Content(schema = @Schema(implementation = CustomerAccLoanCardDetailDto.class))),
             @ApiResponse(responseCode = "400", description = "手機號碼格式不正確",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "查無此手機號碼的客戶或帳戶",
+                    content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
+            @ApiResponse(responseCode = "500", description = "Account 發生未預期的伺服器錯誤",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
     })
     @GetMapping("/fetch-customerAccLoanCardDetail-eureka")
     public ResponseEntity<CustomerAccLoanCardDetailDto> fetchCustomerAccLoanCardDetailEureka(@RequestParam
-                                                                                       @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
-                                                                                       String mobileNumber) {
+                                                                                             @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
+                                                                                             String mobileNumber) {
 
-        CustomerAccLoanCardDetailDto detailDto = customerService.fetchCustomerAccLoanCardDetailDto(mobileNumber);
+        CustomerAccLoanCardDetailDto detailDto = customerService.fetchCustomerAccLoanCardDetailEurekaDto(mobileNumber);
         return ResponseEntity
                 .status(HttpStatus.OK)
+                .header("X-Cross-Service-Discovery", "eureka")
                 .body(detailDto);
     }
 
     @Operation(
-            summary = "以 Kubernetes Service 查詢客戶完整資料",
+            summary = "透過 Kubernetes Service 查詢客戶完整資料",
             description = "功能與一般整合查詢相同，但 loan / card 直接透過 Kubernetes Service DNS 呼叫，"
                     + "不使用 Eureka 取得服務實例。"
     )
@@ -71,7 +77,7 @@ public class CustomerController {
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "查無此手機號碼的客戶或帳戶",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
-            @ApiResponse(responseCode = "500", description = "呼叫 loan 或 card 服務失敗",
+            @ApiResponse(responseCode = "500", description = "Account 發生未預期的伺服器錯誤",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
     })
     @GetMapping("/fetch-customerAccLoanCardDetail-k8s")

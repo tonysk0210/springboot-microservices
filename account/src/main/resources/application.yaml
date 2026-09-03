@@ -6,22 +6,12 @@ logging:
     org.hibernate.tool.schema: DEBUG                  # 啟動時「驗表」：Entity 與資料表對不對得上
     org.springframework.jdbc.datasource.init: DEBUG   # 啟動時「建表」：schema.sql 有沒有跑
     org.hibernate.SQL: DEBUG                          # Hibernate 印出 SQL（含參數）—— 方便對照資料表結構與資料
-    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
-
-    # Feign 呼叫的完整請求／回應。⚠ 必須是 DEBUG —— Feign 的 log 只在這個層級輸出，
-    #   而且 logger 名稱是「介面所在的套件」，不是 feign.* 這種函式庫名稱。
-    #   實際印什麼由下面的 spring.cloud.openfeign...loggerLevel 決定，兩個都要設。
+    # 只對 Feign Client 套件開啟 DEBUG；實際記錄內容由 loggerLevel 決定。
     com.example.account.service.client: DEBUG
+    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,correlationId,traceId,spanId](洋紅) logger名稱(黃) - 訊息
-    #
-    # %X{correlationId:-} 撈 MDC 裡的追蹤 ID（CorrelationIdFilter 放進去的），
-    # :- 是「撈不到就印空字串」，不會炸。
-    # 🔑 有了這欄，同一次呼叫在 gateway / account / loan / card 的 log 可以用同一組 ID 串起來。
-    #
-    # ⚠ 這裡是「整條」自訂 console pattern，Spring Boot 專門給追蹤用的
-    #   logging.pattern.correlation 對它無效（那個只作用在預設 pattern 上），
-    #   所以必須像這樣直接寫進來。
+    # 自訂彩色 log 格式：時間、等級、執行緒、服務名、追蹤 ID 與 logger。
+    # %X{...} 讀取 MDC；同一組 correlationId／traceId 可串起各服務的 log。完整格式需直接設定在 logging.pattern.console。
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
@@ -64,17 +54,12 @@ spring:
     openfeign:
       client:
         config:
-          # default = 套用到所有 Feign client。要只調某一個就把 default 換成 @FeignClient 的 name（loan / card）—— 這就是那個 name 的用途之一。
+          # default 套用到所有 Feign Client；也可改用 @FeignClient 的 name 指定單一 Client。
           default:
-            # none    不印（預設）
-            # basic   方法、URL、狀態碼、耗時          ← 正式環境合適
-            # headers basic + 請求／回應的標頭
-            # full    headers + 完整 body             ← 學習／除錯用
-            #
-            # ⚠ full 會把回應 body 整包印出來。正式環境要降成 basic 或 none，
-            #   否則個資、金額全進 log。
-            # ⚠ 只設這裡沒用，上面 logging.level 那個套件必須是 DEBUG。
-            loggerLevel: full
+            # none 不記錄；basic 記錄方法、URL、狀態碼與耗時；
+            # headers 另外記錄標頭；full 再記錄完整請求／回應內容。
+            # 正式環境建議使用 basic 或 none，避免敏感資料寫入 log。
+            loggerLevel: basic
 
             # 逾時。⚠ 預設值很寬鬆（連線 10 秒、讀取 60 秒），
             #   對方卡住時你的執行緒也跟著卡 60 秒，連鎖拖垮很容易發生。

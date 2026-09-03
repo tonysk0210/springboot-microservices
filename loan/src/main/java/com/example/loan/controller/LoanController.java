@@ -70,9 +70,10 @@ public class LoanController {
                                                     @Parameter(description = "上游 Account 標示的分流來源", example = "eureka") // Swagger UI 的說明文字
                                                     @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
                                                     String loadBalancingSource) {
-        // 觀測用：這次是「哪台」處理、請求「走哪條路」進來的。
-        // HOSTNAME：K8s 是 Pod 名稱、Docker 是容器短 ID（compose 加 hostname: 就變成服務名）、IntelliJ 沒這個變數就印 local。
-        log.info("分流觀測：貸款查詢由 Pod={} 處理，選擇來源={}",
+        // 觀測用：記錄處理請求的執行個體，以及請求進入的路徑。
+        // HOSTNAME：Kubernetes 通常是 Pod 名稱；Docker 是容器 hostname；
+        // IntelliJ 會使用作業系統提供的值，沒有設定時則顯示 local。
+        log.info("分流觀測：貸款查詢由執行個體={} 處理，選擇來源={}",
                 System.getenv().getOrDefault("HOSTNAME", "local"), loadBalancingSource);
 
         LoanDto loanDto = loanService.fetchLoan(mobileNumber);
