@@ -268,8 +268,9 @@ management:
     env:
       enabled: true
 
-  # 允許 POST http://localhost:8080/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
+
   endpoint:
+    # 允許 POST http://localhost:8080/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
     shutdown:
       access: unrestricted
 

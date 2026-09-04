@@ -38,8 +38,8 @@ management:
       # discoveryComposite 可確認 Eureka 目前的服務清單；正式環境建議改為 never。
       show-details: always
 
+  # 讓 info.app 內容出現在 /actuator/info。
   info:
-    # 讓 info.app 內容出現在 /actuator/info。
     env:
       enabled: true
 
