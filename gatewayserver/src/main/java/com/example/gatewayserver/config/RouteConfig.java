@@ -14,7 +14,8 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
- * 對外路由。路徑自己決定
+ * 定義 Gateway 對外路由，包含路徑改寫、服務發現與 fallback。
+ * 對外路徑可自行設計，但改寫後必須符合下游服務的 API 路徑。
  */
 @Configuration
 public class RouteConfig {
@@ -25,62 +26,79 @@ public class RouteConfig {
             @Value("${ACCOUNT_DIRECT_BASE_URL:http://localhost:8080}") String accountDirectBaseUrl) {
         return builder.routes()
 
-                // Kubernetes 對照路徑：不經 Eureka，直接交給 account Service 在叢集內選一個 Ready Pod。
-                // 例：/k8s/account/api/fetch-customerAccLoanCardDetail-k8s → account:8080/api/...
+                /* -----------------------------------------------------------------
+                 * API 1：/bank/account/**
+                 * 透過 Eureka／LoadBalancer 尋找 Account 實例。
+                 * ----------------------------------------------------------------- */
+                .route(p -> p
+                        .path("/bank/account/**")
+                        .filters(f -> f
+                                // 1. 移除 /bank/account 前綴，保留後續路徑轉給 Account。
+                                .rewritePath("/bank/account/(?<segment>.*)", "/${segment}")
+                                // 2. 在回應 header 加上 X-Response-Time，方便觀察。
+                                .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
+                                // 3. Account 無法連線時，轉發到 Gateway 的 fallback 端點。
+                                .circuitBreaker(config -> config
+                                        .setName("accountCircuitBreaker")
+                                        .setFallbackUri("forward:/contactSupport"))
+                        )
+                        // lb:// 透過 Eureka／LoadBalancer 尋找 account 實例。
+                        .uri("lb://ACCOUNT"))
+
+                /* -----------------------------------------------------------------
+                 * API 2：/bank/loan/**
+                 * 透過 Eureka／LoadBalancer 尋找 Loan 實例。
+                 * ----------------------------------------------------------------- */
+                .route(p -> p
+                        .path("/bank/loan/**")
+                        .filters(f -> f
+                                .rewritePath("/bank/loan/(?<segment>.*)", "/${segment}")
+                                .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
+                                // 1. Gateway 連線失敗時，GET 請求最多重試 3 次。
+                                .retry(retryConfig -> retryConfig
+                                        .setRetries(3)
+                                        .setMethods(HttpMethod.GET)
+                                        .setBackoff(
+                                                // 第一次重試前等待 100 毫秒。
+                                                Duration.ofMillis(100),
+                                                // 每次重試的等待時間最多 1 秒。
+                                                Duration.ofMillis(1000),
+                                                // 每次等待時間乘以 2，形成指數退避。
+                                                2,
+                                                // 以下一次等待時間為基準繼續倍增：100、200、400 毫秒……
+                                                true)))
+                        // lb:// 透過 Eureka／LoadBalancer 尋找 loan 實例。
+                        .uri("lb://LOAN"))
+
+                /* -----------------------------------------------------------------
+                 * API 3：/bank/card/**
+                 * 透過 Eureka／LoadBalancer 尋找 Card 實例。
+                 * ----------------------------------------------------------------- */
+                .route(p -> p
+                        .path("/bank/card/**")
+                        .filters(f -> f
+                                .rewritePath("/bank/card/(?<segment>.*)", "/${segment}")
+                                .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
+                                // 1. 以 Redis 令牌桶限制請求速率，避免 Card 被過量請求壓垮。
+                                .requestRateLimiter(config -> config
+                                        // 使用每秒補充速率、桶容量與單次請求成本的設定。
+                                        .setRateLimiter(redisRateLimiter())
+                                        // 依 user header 分組；不同 user 使用不同限流桶。
+                                        .setKeyResolver(userKeyResolver())))
+                        // lb:// 透過 Eureka／LoadBalancer 尋找 card 實例。
+                        .uri("lb://CARD"))
+
+                /* -----------------------------------------------------------------
+                 * API 4：/k8s/account/**
+                 * 不經 Eureka，直接使用 account Service DNS 尋找 Ready Pod。
+                 * 例：/k8s/account/api/... → account:8080/api/...
+                 * ----------------------------------------------------------------- */
                 .route(p -> p
                         .path("/k8s/account/**")
                         .filters(f -> f
                                 .rewritePath("/k8s/account/(?<segment>.*)", "/${segment}")
                                 .addResponseHeader("X-Gateway-Discovery", "kubernetes-service"))
                         .uri(accountDirectBaseUrl)) // 直接使用服務 DNS 找 account，不經 Eureka。
-
-                // /bank/account/api/fetch-account → /api/fetch-account
-                .route(p -> p
-                        .path("/bank/account/**")
-                        // rewritePath 砍掉前綴，(?<segment>.*) 抓住要保留的尾巴。
-                        .filters(f ->
-                                f.rewritePath("/bank/account/(?<segment>.*)", "/${segment}")
-                                        .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                        // 使用此名稱識別並套用 account 路由的斷路器設定。
-                                        .circuitBreaker(config -> config
-                                                .setName("accountCircuitBreaker") // 給此斷路器設定一個名稱
-                                                .setFallbackUri("forward:/contactSupport")) // 斷路時在 Gateway 內部轉發至替代回應端點。
-                        )
-                        // lb:// = 去 Eureka 查實例。名字要對上 spring.application.name
-                        .uri("lb://ACCOUNT"))
-
-                .route(p -> p
-                        .path("/bank/loan/**")
-                        .filters(f ->
-                                f.rewritePath("/bank/loan/(?<segment>.*)", "/${segment}")
-                                        .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                        // ⚠ 這是 Spring Cloud Gateway 自己的 retry（RetryGatewayFilterFactory），跟 account 用的 Resilience4j @Retry 是兩套不同的東西。
-                                        .retry(retryConfig -> retryConfig
-                                                .setRetries(3) // 重試次數（不含第一次，總共打 4 次）
-                                                .setMethods(HttpMethod.GET) // 只對 GET 方法重試
-                                                .setBackoff(
-                                                        // 第一次重試前等待 100 ms。
-                                                        Duration.ofMillis(100),
-                                                        // 單次等待時間最多 1 秒。(休息時間)
-                                                        Duration.ofMillis(1000),
-                                                        // 每次等待時間乘以 2。
-                                                        2,
-                                                        // 以上一次等待時間為基準計算下一次延遲。
-                                                        true)))
-                        .uri("lb://LOAN"))
-
-                .route(p -> p
-                        .path("/bank/card/**")
-                        .filters(f ->
-                                f.rewritePath("/bank/card/(?<segment>.*)", "/${segment}")
-                                        .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                        // 對 card 路由套用 Redis 令牌桶限流。
-                                        .requestRateLimiter(config -> config
-                                                // 指定令牌補充速率、桶容量與每次請求成本。
-                                                .setRateLimiter(redisRateLimiter())
-                                                // 依 user header 產生 key，讓不同 key 使用各自的桶。
-                                                .setKeyResolver(userKeyResolver())))
-                        .uri("lb://CARD"))
 
                 .build();
     }
