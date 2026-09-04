@@ -302,6 +302,9 @@ services:
       #   則是另一種：自訂變數，yaml 要配合寫 ${VAR:預設值}。）
       SPRING_DATA_REDIS_HOST: redis
 
+      # IntelliJ 預設為 localhost:8080；Compose 容器以服務 DNS 直接找 account，不經 Eureka。
+      ACCOUNT_DIRECT_BASE_URL: http://account:8080
+
       # 🔑 容器環境一律開啟 OAuth2 驗證，寫死不做成開關。
       #    對應 application-auth.yaml（jwk-set-uri）和 SecurityConfig（@Profile("auth")）。
       #    ⚠ 所以打任何 /bank/** 的 API 都要帶 Bearer token，不帶一律 401。

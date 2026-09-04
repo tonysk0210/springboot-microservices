@@ -4,6 +4,7 @@ import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,7 +20,9 @@ import java.time.LocalDateTime;
 public class RouteConfig {
 
     @Bean
-    public RouteLocator bankRouteConfig(RouteLocatorBuilder builder) {
+    public RouteLocator bankRouteConfig(
+            RouteLocatorBuilder builder,
+            @Value("${ACCOUNT_DIRECT_BASE_URL:http://localhost:8080}") String accountDirectBaseUrl) {
         return builder.routes()
 
                 // Kubernetes 對照路徑：不經 Eureka，直接交給 account Service 在叢集內選一個 Ready Pod。
@@ -29,7 +32,7 @@ public class RouteConfig {
                         .filters(f -> f
                                 .rewritePath("/k8s/account/(?<segment>.*)", "/${segment}")
                                 .addResponseHeader("X-Gateway-Discovery", "kubernetes-service"))
-                        .uri("http://account:8080"))
+                        .uri(accountDirectBaseUrl)) // 直接使用服務 DNS 找 account，不經 Eureka。
 
                 // /bank/account/api/fetch-account → /api/fetch-account
                 .route(p -> p

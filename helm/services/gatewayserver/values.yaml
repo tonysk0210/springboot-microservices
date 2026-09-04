@@ -22,6 +22,7 @@ configMap:
     CONFIGSERVER_OPTIONAL_PREFIX: ""
     SPRING_RABBITMQ_HOST: "host.docker.internal"
     SPRING_DATA_REDIS_HOST: "host.docker.internal"
+    ACCOUNT_DIRECT_BASE_URL: "http://account:8080"
     SPRING_PROFILES_ACTIVE: "auth"
     KEYCLOAK_JWK_SET_URI: "http://host.docker.internal:7080/realms/master/protocol/openid-connect/certs"
     OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"

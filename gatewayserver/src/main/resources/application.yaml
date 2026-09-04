@@ -127,7 +127,7 @@ management:
       # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
       show-details: always
 
-    # 僅允許查看目前路由，不能新增或刪除。
+    # 可用 GET /actuator/gateway/routes 查看目前路由，不能新增或刪除。
     gateway:
       access: read_only
 
