@@ -45,22 +45,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- Eureka Client：註冊 Gateway 並取得服務清單；lb://SERVICE
-             再由 Spring Cloud LoadBalancer 選擇可用實例。 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
-        </dependency>
-        <!-- Spring Cloud Bus：透過 RabbitMQ 廣播設定更新；Broker 未啟動時會持續重連。 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-bus-amqp</artifactId>
-        </dependency>
-        <!-- Spring Cloud Gateway 的 WebFlux／Reactor 實作：以非阻塞方式進行路由轉送，
-             並支援路由斷言與 Gateway filters；相關設定使用 spring.cloud.gateway.server.webflux.*。 -->
+        <!-- API Gateway 的 WebFlux 版本：非阻塞地把請求轉送到其他服務，
+     等待下游回應時不佔住 Gateway 執行緒。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+        </dependency>
+        <!-- 向 Eureka 註冊 Gateway，並讓 lb:// 路由找到下游服務。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
         <!-- WebFlux Gateway 的 Reactive Circuit Breaker：整合 Reactor Resilience4j，
              供 Gateway CircuitBreaker filter 執行斷路保護與 fallback。 -->

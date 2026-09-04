@@ -3,6 +3,20 @@
 server:
   port: 8072
 
+logging:
+  level:
+    com.example.gatewayserver: DEBUG # 設定日誌等級
+  pattern:
+    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,traceId,spanId](洋紅) logger名稱(黃) - 訊息
+    #
+    # ⚠ 比 account / loan / card 少一格 correlationId —— 那格在這裡永遠是空的。
+    #   correlation-id 是我們自己 MDC.put 的，WebFlux 換執行緒就沒了。
+    #   Gateway 的 correlation-id 靠 RequestTraceFilter / ResponseTraceFilter 裡的
+    #   log.debug 直接寫在訊息裡，不走 pattern。
+    # 🔑 traceId / spanId 有值，但「要靠上面的 spring.reactor.context-propagation: auto」——
+    #    框架有辦法把它同步回 MDC，我們手寫的 correlation-id 沒有。差別在這裡。
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+
 spring:
   application:
     name: gatewayserver
@@ -28,17 +42,6 @@ spring:
             # ⚠ 包含後端「內部」的一切 —— account 查 DB、再用 Feign 打 loan 和 card，
             #   全部算在這 5 秒裡。gateway 只看自己送出到收回來多久。
             response-timeout: 5s
-
-  # RabbitMQ 連線（Spring Cloud Bus 用它接收 refresh 廣播）
-  # 🔑 這四行可以全部刪掉 —— Spring Boot 預設就是 localhost/5672/guest/guest。
-  #    寫出來只是讓依賴關係看得見，跟 account / loan / card 的寫法一致。
-  # ⚠ 容器裡由 compose 覆寫：SPRING_RABBITMQ_HOST: rabbitmq
-  # ⚠ RabbitMQ 沒開時服務仍會啟動，但會在背景無限重連，而且收不到 Bus 廣播。
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
 
   # Redis —— 限流（RequestRateLimiter）的計數器。
   #
@@ -108,7 +111,29 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,env,refresh,busrefresh,gateway,circuitbreakers,circuitbreakerevents,prometheus,metrics
+        include: health,info,env,gateway,circuitbreakers,circuitbreakerevents,prometheus,metrics
+
+  # 讓 info.app 內容出現在 /actuator/info。
+  info:
+    env:
+      enabled: true
+
+  endpoint:
+    # 允許 POST http://localhost:8072/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
+    shutdown:
+      access: unrestricted
+    
+    health:
+      # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
+      show-details: always
+
+    # 僅允許查看目前路由，不能新增或刪除。
+    gateway:
+      access: read_only
+
+    env:
+      # 顯示 Spring Environment 的設定值：YAML、環境變數、JVM 參數與命令列參數等；僅適合本機。
+      show-values: ALWAYS
 
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
@@ -160,38 +185,9 @@ management:
     circuitbreakers:
       enabled: true
 
-  info:
-    env:
-      enabled: true      # 沒這行 /actuator/info 回空的 {}
 
-  endpoint:
-    health:
-      show-details: always
 
-    # /actuator/gateway/routes 是查「實際生效的路由」唯一可靠的方法。
-    # 要 unrestricted 是因為它能 POST 新增 / DELETE 刪路由。
-    # 無驗證就能改路由 = 流量可被導走，正式環境必關。
-    gateway:
-      access: unrestricted
 
-    env:
-      show-values: ALWAYS   # 會印出明文連線字串與密碼，只適合本機
-
-logging:
-  level:
-    com:
-      example:
-        gatewayserver: DEBUG # 設定日誌等級
-  pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,traceId,spanId](洋紅) logger名稱(黃) - 訊息
-    #
-    # ⚠ 比 account / loan / card 少一格 correlationId —— 那格在這裡永遠是空的。
-    #   correlation-id 是我們自己 MDC.put 的，WebFlux 換執行緒就沒了。
-    #   Gateway 的 correlation-id 靠 RequestTraceFilter / ResponseTraceFilter 裡的
-    #   log.debug 直接寫在訊息裡，不走 pattern。
-    # 🔑 traceId / spanId 有值，但「要靠上面的 spring.reactor.context-propagation: auto」——
-    #    框架有辦法把它同步回 MDC，我們手寫的 correlation-id 沒有。差別在這裡。
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 # 斷路器分成兩棵獨立的設定樹，長得像但管的事不同：
 #     circuitbreaker  失敗幾次跳開、跳開多久
