@@ -322,16 +322,12 @@ resilience4j.retry:
         - com.example.account.exception.ResourceNotFoundException
         - com.example.account.exception.CustomerAlreadyExistsException
 
-# 限流：每個「時間窗」內最多放行幾次，超過就拋 RequestNotPermitted 走 fallback。
-#
-# ⚠ 跟 gateway 的 requestRateLimiter 是兩套不同的東西：
-#       gateway   令牌桶 + KeyResolver 分人，計數存 Redis（多台共用）
-#       這裡      固定時間窗、不分人，計數在記憶體（多台各算各的）
+# Account 內部限流：超過額度時拋出 RequestNotPermitted，交由 fallback 處理。
+# instance 是一個執行中的 Account 副本（IntelliJ 的 JVM、Docker container 或 Kubernetes Pod）。
+# Gateway 以 user Header 分開計算；這裡不分使用者，所有人共用同一 instance 的額度，多個 instance（JVM、container 或 Pod）則各自計算。
 resilience4j.ratelimiter:
   configs:
     default:
-      limitForPeriod: 1            # 每個時間窗放行 1 次
-      limitRefreshPeriod: 5s       # 時間窗長度 —— 每 5 秒重新給 1 次額度
-      timeoutDuration: 0           # 額度用完「不等待」，立刻失敗走 fallback
-      #                              ⚠ 設成 1s 的話會先卡著等額度，等不到才失敗。
-      #                                對使用者是多等 1 秒，對執行緒是被佔住 1 秒。
+      limitForPeriod: 1            # 每個時間窗最多 1 次
+      limitRefreshPeriod: 5s       # 每 5 秒補回額度
+      timeoutDuration: 0           # 沒額度時立即失敗，不等待

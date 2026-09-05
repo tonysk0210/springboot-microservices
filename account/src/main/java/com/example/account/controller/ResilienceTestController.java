@@ -52,7 +52,7 @@ public class ResilienceTestController {
                 .body("服務暫時無法使用，請稍後再試");
     }
 
-    // ==================== RateLimiter 測試 ====================
+    // ==================== RateLimiter 測試 ==================== 快速連續呼叫 /api/test-rate-limiter：有額度回傳 200，超過額度回傳 429。限流設定位於 application.yaml 的 resilience4j.ratelimiter。
 
     @Operation(
             summary = "測試 Rate Limiter 限流機制",
@@ -68,16 +68,16 @@ public class ResilienceTestController {
                             schema = @Schema(implementation = String.class),
                             examples = @ExampleObject(value = "請求過於頻繁，請稍後再試")))
     })
-    // 額度用完時直接執行 fallback，方法本體不會執行。計數存在單一 instance 的記憶體中，多個 Pod 會各自計算。
+    // 沒有額度時不執行方法本體，直接呼叫 fallback；目前額度各服務 instance 分開計算。
     @RateLimiter(name = "testRateLimiter", fallbackMethod = "testRateLimiterFallback")
     @GetMapping(value = "/test-rate-limiter", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> testRateLimiter() {
-        // 額度足夠時回傳 200；額度用完時由 fallback 回傳 429。
+        // 請求通過限流後回傳 200。
         log.info("測試 rate limiter 呼叫 testRateLimiter()");
-        return ResponseEntity.ok("測試 rate limiter 呼叫 testRateLimiter()");
+        return ResponseEntity.ok("請求通過 RateLimiter，服務正常回應");
     }
 
-    // 額度用完後回傳 429。
+    // 額度用完時回傳 429。
     public ResponseEntity<String> testRateLimiterFallback(Throwable throwable) {
         log.warn("測試 rate limiter 額度用完，回傳 fallback 預設值：{}", throwable.toString());
         return ResponseEntity

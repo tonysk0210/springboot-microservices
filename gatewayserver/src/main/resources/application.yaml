@@ -29,17 +29,8 @@ spring:
             # 送出請求到收到完整回應的最長時間；超時會觸發 Circuit Breaker 測試情境。
             response-timeout: 7s
 
-  # Redis —— 限流（RequestRateLimiter）的計數器。
-  #
-  # 🔑 為什麼不能存在記憶體：多台 gateway 會各算各的，「每秒 1 次」變成實際
-  #    可以打 N 次。Redis 是那份「共用的計數器」，Gateway 內建的 Lua 腳本
-  #    保證多台同時加也不會算錯。
-  #
-  # 🔑 這兩行同樣可以刪掉（預設就是 localhost:6379），寫出來讓依賴關係看得見。
-  # ⚠ 容器裡由 compose 覆寫：SPRING_DATA_REDIS_HOST: redis
-  # ⚠ Redis 沒開時 gateway「還是會啟動成功」（連線是延遲建立的），
-  #   但第一個經過限流 filter 的請求就爆 Connection refused ——
-  #   那種「啟動正常、一打就死」比啟動失敗難查得多。
+  # Redis 儲存 Gateway RequestRateLimiter 的共用計數，讓多個 Gateway instance 使用同一份限流狀態；容器由 Compose 將主機覆寫為 redis。
+  # Redis 未啟動時 Gateway 仍可能正常啟動，但所有經過限流的請求都會連線失敗；Redis 恢復後，後續請求才會恢復正常限流。
   data:
     redis:
       host: localhost

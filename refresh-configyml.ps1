@@ -1,37 +1,21 @@
 # =============================================================================
-#  手動觸發設定刷新 —— 模擬 GitHub webhook
+#  手動模擬 GitHub webhook，測試設定刷新：/monitor → Config Server → Bus → 受影響服務。
 #
-#  正常的鏈路是這樣：
-#      push configyml/*.yml
-#          ↓ GitHub 發 webhook
-#      POST localhost:8071/monitor        ← configserver（spring-cloud-config-monitor）
-#          ↓ 解析 payload：哪些檔案變了 → 哪些服務要 refresh
-#      RabbitMQ（Spring Cloud Bus 廣播）
-#          ↓
-#      account / loan / card 各自重抓設定
+#  設定檔需先 commit、push 到 GitHub；Config Server 與 RabbitMQ 必須啟動。
+#  本機測試不需 GitHub 或 tunnel，腳本會直接呼叫 Config Server 的 /monitor。
+#  仍會經過相同的 payload 解析，只通知有變更的服務。
 #
-#  ⚠ GitHub 打不到你家的 localhost，中間那一跳需要 tunnel（hookdeck / ngrok）。
-#    但這台機器的「智慧型應用程式控制」會擋掉未簽章的 tunnel 執行檔
-#    （事件記錄 CodeIntegrity 3033），所以改由這支腳本直接戳 /monitor。
-#
-#  🔑 走的是「完全同一條路徑」—— 一樣經過 payload 解析、一樣只通知有變的服務。
-#     差別只在「誰按下觸發鍵」。
-#
-#  用法（在專案根目錄）：
-#      .\refresh-config.ps1                     從最後一次 commit 自動判斷
-#      .\refresh-config.ps1 -Service account
-#      .\refresh-config.ps1 -Service account,loan
-#      .\refresh-config.ps1 -All                不分析檔案，通知全部服務
-#
-#  ⚠ configserver 讀的是「GitHub 上的內容」，不是你磁碟上的檔案 ——
-#    改完 configyml/*.yml 一定要先 commit + push，否則刷新後拿到的還是舊值。
+#  用法：
+#  .\refresh-configyml.ps1                  自動判斷最後一次 commit
+#  .\refresh-configyml.ps1 -Service account 只通知 Account
+#  .\refresh-configyml.ps1 -All             通知全部服務
 # =============================================================================
 
 param(
     [ValidateSet("account", "loan", "card", "eurekaserver", "gatewayserver")]
     [string[]] $Service,
 
-    # 不做檔案分析，直接通知全部（等同 POST /actuator/busrefresh）
+    # 不分析檔案，直接通知全部服務。
     [switch]   $All,
 
     [string]   $ConfigServer = "http://localhost:8071"
@@ -42,8 +26,7 @@ $ErrorActionPreference = "Stop"
 Write-Host "=== 設定刷新（模擬 GitHub webhook → /monitor → Bus）===" -ForegroundColor Cyan
 Write-Host ""
 
-# ── ① 先確認 configserver 在不在 ─────────────────────────────────────────────
-#    不先擋的話只會拿到「目標電腦拒絕連線」，看不出是哪個服務沒開。
+# ① 先確認 Config Server 可以連線。
 $uri  = [Uri]$ConfigServer
 $tcp  = [System.Net.Sockets.TcpClient]::new()
 $open = $false
@@ -63,9 +46,9 @@ if (-not $open) {
     exit 1
 }
 
-# ── ② 決定要通知誰 ───────────────────────────────────────────────────────────
+# ② 決定要通知哪些服務。
 if ($All) {
-    # application.yml 是 Config Server 的萬用檔名 —— 對到「所有服務」。
+    # application.yml 代表全部服務共用的設定。
     $paths = @("configyml/application.yml")
     Write-Host "模式 : 全部服務（不分析檔案）" -ForegroundColor Yellow
 }
@@ -74,7 +57,7 @@ elseif ($Service) {
     Write-Host "模式 : 指定服務"
 }
 else {
-    # 沒指定就從最後一次 commit 撈 —— 這正是 GitHub webhook payload 的內容。
+    # 未指定服務時，讀取最後一次 commit 修改的設定檔。
     Push-Location $PSScriptRoot
     try {
         $changed = git diff-tree --no-commit-id --name-only -r HEAD -- configyml/ 2>$null
@@ -86,8 +69,8 @@ else {
         Write-Host "✗ 最後一次 commit 沒有動到 configyml/ 底下的檔案" -ForegroundColor Red
         Write-Host ""
         Write-Host "  改用明確指定：" -ForegroundColor DarkGray
-        Write-Host "    .\refresh-config.ps1 -Service account" -ForegroundColor DarkGray
-        Write-Host "    .\refresh-config.ps1 -All" -ForegroundColor DarkGray
+        Write-Host "    .\refresh-configyml.ps1 -Service account" -ForegroundColor DarkGray
+        Write-Host "    .\refresh-configyml.ps1 -All" -ForegroundColor DarkGray
         exit 1
     }
 
@@ -98,10 +81,8 @@ else {
 Write-Host "檔案 : $($paths -join ', ')"
 Write-Host ""
 
-# ── ③ 送出 ──────────────────────────────────────────────────────────────────
-#    payload 的形狀要跟 GitHub 一致 —— configserver 是用
-#    GithubPropertyPathNotificationExtractor 去讀 commits[].modified，
-#    而它靠 X-Github-Event 這個標頭認出「這是 GitHub 來的」。少了標頭會被忽略。
+# ③ 傳送模擬 GitHub push webhook 的通知。
+#    payload 和標頭需符合 Config Server /monitor 的格式。
 $body = @{ commits = @(@{ modified = $paths }) } | ConvertTo-Json -Depth 5 -Compress
 
 try {
@@ -117,7 +98,7 @@ try {
     exit 1
 }
 
-# ── ④ 結果 ──────────────────────────────────────────────────────────────────
+# ④ 顯示通知結果。
 if ($notified) {
     Write-Host "✓ 已廣播 refresh 給：" -ForegroundColor Green -NoNewline
     Write-Host " $($notified -join ', ')" -ForegroundColor Cyan
@@ -129,7 +110,7 @@ if ($notified) {
     Write-Host "    1. 那個服務根本沒啟動" -ForegroundColor DarkGray
     Write-Host "    2. 改的值沒 push 到 GitHub —— 重抓到的還是舊的，Keys refreshed 會是空的 []" -ForegroundColor DarkGray
 } else {
-    # /monitor 回空陣列 = payload 解析出來的路徑對不到任何服務名。
+    # 空陣列表示檔案路徑沒有對應到服務名稱。
     Write-Host "⚠ /monitor 收到了，但沒對應到任何服務" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  它是把檔名當服務名（configyml/account.yml → account），" -ForegroundColor DarkGray

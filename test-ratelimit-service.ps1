@@ -1,26 +1,13 @@
 # =============================================================================
-#  限流測試（二）：微服務這一層
+#  測試 Account 內部的 @RateLimiter。
+#  用途：快速連續呼叫 API，觀察方法執行時回 500、超過額度時回 429。
+#  限流設定每 5 秒放行 1 次，不分使用者，額度存在每個 instance 的記憶體。
 #
-#  測的是 AccountController 的 @RateLimiter(name = "testRateLimiter")：
-#      固定時間窗（yaml 設每 5 秒放行 1 次）
-#      不分人 —— 整個方法一份額度，帶什麼標頭都一樣
-#      計數在「記憶體」，多台 account 的話每台各算各的
-#
-#  🔑 跟 Gateway 那支的差別：那支分人、這支不分人。
-#     這支不管誰打，5 秒內第二個請求就會被擋。
-#
-#  用法（在專案根目錄）：
-#      .\test-ratelimit-service.ps1              打 5 次
+#  用法：
+#      .\test-ratelimit-service.ps1
 #      .\test-ratelimit-service.ps1 -Count 10
 #
-#  預期輸出：
-#      500 429 429 429 429
-#       ↑    ↑
-#       │    └─ 被限流擋在門外，方法根本沒執行
-#       └─ 額度還有，方法真的跑了（它故意 throw RuntimeException → GlobalExceptionHandler → 500）
-#
-#  ⚠ 直接打 8080，不要走 gateway —— account 那條路由掛的是斷路器，
-#    走過去會多一層干擾，分不清是誰擋的。
+#  直接呼叫 Account 的 8080，避免 Gateway 限流或斷路器干擾測試結果。
 # =============================================================================
 
 param(
@@ -28,7 +15,7 @@ param(
     [string] $Url   = "http://localhost:8080/api/test-rate-limiter"
 )
 
-# ⚠ 一定要用 curl.exe（PowerShell 的 curl 是 Invoke-WebRequest 的別名）
+# 使用 curl.exe，避免 PowerShell 的 curl 別名造成參數差異。
 $curl = "curl.exe"
 
 Write-Host "=== 微服務限流（固定時間窗 + 不分人 + 記憶體）===" -ForegroundColor Cyan
@@ -52,7 +39,7 @@ $codes = @()
 
 Write-Host "`n"
 
-# ── 統計 ──────────────────────────────────────────────────────────────────
+# 顯示各 HTTP 狀態碼的次數與意義。
 $codes | Group-Object | Sort-Object Name | ForEach-Object {
     $label = switch -Regex ($_.Name) {
         '^2'   { "成功" }
