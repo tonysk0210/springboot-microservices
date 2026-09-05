@@ -109,12 +109,12 @@ public class CustomerServiceImpl implements ICustomerService {
 
 
     private LoanDto fetchKubernetesLoanOrNull(String mobileNumber) {
-        ResponseEntity<LoanDto> response = kubernetesLoanFeignClient.fetchLoanDetails(mobileNumber, "kubernetes-service");
+        ResponseEntity<LoanDto> response = kubernetesLoanFeignClient.fetchLoanDetails(mobileNumber, "service-dns");
         return (response != null) ? response.getBody() : null;
     }
 
     private CardDto fetchKubernetesCardOrNull(String mobileNumber) {
-        ResponseEntity<CardDto> response = kubernetesCardFeignClient.fetchCardDetails(mobileNumber, "kubernetes-service");
+        ResponseEntity<CardDto> response = kubernetesCardFeignClient.fetchCardDetails(mobileNumber, "service-dns");
         return (response != null) ? response.getBody() : null;
     }
 }

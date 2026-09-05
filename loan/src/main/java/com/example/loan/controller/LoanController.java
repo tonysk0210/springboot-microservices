@@ -66,9 +66,9 @@ public class LoanController {
     public ResponseEntity<LoanDto> fetchLoanDetails(@RequestParam
                                                     @Pattern(regexp = "(^$|[0-9]{10})", message = "手機號碼必須為 10 位數字")
                                                     String mobileNumber,
-                                                    // Account 用 Feign 呼叫時會帶這個 X-Load-Balancing-Source header；預設值 direct
+                                                    // Account 用 Feign 呼叫時會帶這個 Header；未提供時標記為 direct。
                                                     @Parameter(description = "上游 Account 標示的分流來源", example = "eureka") // Swagger UI 的說明文字
-                                                    @RequestHeader(name = "X-Load-Balancing-Source", defaultValue = "direct")
+                                                    @RequestHeader(name = "X-Downstream-Load-Balancing-Source", defaultValue = "direct")
                                                     String loadBalancingSource) {
         // 觀測用：記錄處理請求的執行個體，以及請求進入的路徑。
         // HOSTNAME：Kubernetes 通常是 Pod 名稱；Docker 是容器 hostname；

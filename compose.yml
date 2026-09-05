@@ -257,66 +257,33 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
-  #  gatewayserver —— 對外單一入口
-  #
-  #  外面只需要開 8072 一個 port，三個服務的 8080 / 8090 / 9000 其實可以全部關掉
-  #  （目前留著是為了直接打單一服務除錯、開各自的 swagger-ui）。
-  #
-  #      http://localhost:8072/bank/account/api/fetch-account
-  #      http://localhost:8072/bank/loan/api/fetch-loan
-  #      http://localhost:8072/bank/card/api/fetch-card
+  #  gatewayserver —— 對外唯一入口（localhost:8072）。
+  #  /bank/account、/bank/loan、/bank/card 由 Gateway 轉發到各服務。
+  #  /k8s/account 透過 Compose/Kubernetes Service DNS 直接呼叫 Account。
   # ---------------------------------------------------------------------------
   gatewayserver:
-    # image 由 Jib 建：cd gatewayserver && ./mvnw compile jib:dockerBuild
     image: anthonysk/gatewayserver:0.0.1-SNAPSHOT
     container_name: gatewayserver-ms
-    # 固定 Eureka 顯示的主機名稱；不影響 Compose DNS 或對外 port。
     hostname: gatewayserver-ms
     ports:
       - "8072:8072"
 
-    # ⚠ 這裡刻意「不」depends_on account / loan / card。
-    #
-    #   路由是 RouteConfig 寫死的（lb://ACCOUNT），路由表在啟動時就建好，
-    #   跟三個服務在不在完全無關 —— 服務沒起就是回 503，等它們註冊到 Eureka
-    #   之後 30 秒內自動可用。
-    #
-    #   加了 depends_on 反而把「各自獨立部署」綁回去：任何一個服務重啟，
-    #   Gateway 也要跟著等。
-    #
-    # ⚠ 唯一的例外是自動路由（discovery.locator.enabled: true）——
-    #   那時路由「從 Eureka 名冊生成」，名冊空的就沒有路由，打進來是 404。
-    #   本專案設 false，所以不受影響。
-
     environment:
-      # Gateway 仍需透過 Eureka 找到 account / loan / card。
+      # 透過 Eureka 找到 account / loan / card。
       EUREKA_URL: http://eurekaserver:8070/eureka/
-
       # 容器內將 trace 傳送至 Tempo。
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
-
-      # 限流計數器的位址。直接覆蓋 Spring 的 spring.data.redis.host，
-      # 所以 gatewayserver 的 application.yaml「什麼都不用寫」——
-      # Spring Boot 預設就是 localhost:6379，本機跑剛好對，容器跑由這行蓋掉。
-      # （跟 SPRING_RABBITMQ_HOST 同一種風格；CONFIGSERVER_HOST / EUREKA_URL
-      #   則是另一種：自訂變數，yaml 要配合寫 ${VAR:預設值}。）
+      # 容器內 Redis 的服務名稱；供 Gateway 限流使用。
       SPRING_DATA_REDIS_HOST: redis
-
-      # IntelliJ 預設為 localhost:8080；Compose 容器以服務 DNS 直接找 account，不經 Eureka。
+      # Compose 以服務 DNS 直接呼叫 account，不經 Eureka。
       ACCOUNT_DIRECT_BASE_URL: http://account:8080
-
-      # 🔑 容器環境一律開啟 OAuth2 驗證，寫死不做成開關。
-      #    對應 application-auth.yaml（jwk-set-uri）和 SecurityConfig（@Profile("auth")）。
-      #    ⚠ 所以打任何 /bank/** 的 API 都要帶 Bearer token，不帶一律 401。
-      #    ⚠ 想在不驗證的狀態下測業務邏輯，用 IntelliJ 跑 —— 它預設不驗證。
+      # 容器環境啟用 OAuth2；呼叫 /bank/** 必須帶 Bearer token。
       SPRING_PROFILES_ACTIVE: auth
-
-      # ⚠ 容器裡要用服務名 keycloak:8080 —— 用 localhost:7080 的話，
-      #   那個 localhost 是 gateway 容器自己，不是主機。
+      # 容器內使用 Keycloak 服務名稱，不能使用容器自己的 localhost。
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/master/protocol/openid-connect/certs
 
     healthcheck:
-      # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver。
+      # 檢查 Gateway 健康端點。
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8072/actuator/health" ]
       interval: 10s
       timeout: 5s
@@ -327,18 +294,18 @@ services:
       file: common.yml
       service: resource-limits
 
-    # ⚠ redis 必須先就緒 —— 少了它 gateway「還是會啟動成功」，
-    #   但第一個經過限流 filter 的請求就爆 Connection refused。
-    #   那種「啟動正常、一打就死」比啟動失敗難查得多。
-    # Eureka 與 Redis 必須先就緒。
-    #
-    # ⚠ 這裡刻意「不」depends_on keycloak —— 用 jwk-set-uri 時公鑰是
-    #   「第一次驗 token 才去抓」，不是啟動時，所以 gateway 比 Keycloak 早起
-    #   完全沒問題。加了只會讓 gateway 白等 Keycloak 那段偏慢的啟動時間。
+    # Eureka、Redis、Account、Loan、Card 必須 healthy 後 Gateway 才啟動。
+    # 不等待 Keycloak：驗證 token 時才取得公鑰。
     depends_on:
       eurekaserver:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      account:
+        condition: service_healthy
+      loan:
+        condition: service_healthy
+      card:
         condition: service_healthy
 
   # ---------------------------------------------------------------------------

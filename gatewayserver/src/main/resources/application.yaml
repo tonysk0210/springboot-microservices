@@ -20,22 +20,12 @@ spring:
     gateway:
       server:
         webflux:
-          # Gateway 打後端服務時，Netty 這一次 HTTP 往返的逾時。
-          # 套用到「所有路由」，不需要有斷路器也生效。
-          #
-          # 🔑 逾時要「越外層越寬鬆」，這三層是一組的：
-          #        account 的 Feign read-timeout   2s   ← 最內層
-          #        本檔案的 response-timeout       5s
-          #        本檔案的 timelimiter            8s   ← 最外層
-          #    外層比內層短的話，內層還在努力、外層已經放棄，那些工作全部白做，
-          #    而且 log 會出現「gateway 回 504 但 account 明明成功」的矛盾，很難查。
+          # Gateway 呼叫後端的 Netty HTTP 逾時，套用所有路由。
+          # 逾時應由內到外遞增：Feign 2s → Gateway 5s → timelimiter 8s。
           httpclient:
-            # 建立 TCP 連線的上限。⚠ 這個欄位是「毫秒的整數」，寫 1s 會解析失敗。
-            # 不含在下面那個 5s 裡，兩個分開算（最壞 1 + 5 = 6 秒）。
+            # 建立 TCP 連線的最長時間（毫秒）；不包含 response-timeout。
             connect-timeout: 1000
-            # 送出請求到收到回應的總時長。
-            # ⚠ 包含後端「內部」的一切 —— account 查 DB、再用 Feign 打 loan 和 card，
-            #   全部算在這 5 秒裡。gateway 只看自己送出到收回來多久。
+            # 送出請求到收到完整回應的最長時間，包含後端處理時間。
             response-timeout: 5s
 
   # Redis —— 限流（RequestRateLimiter）的計數器。

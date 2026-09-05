@@ -39,9 +39,9 @@ public class CustomerController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "查詢成功；loan 或 card 無資料或暫時不可用時，對應欄位為 null",
-                    headers = @Header(name = "X-Cross-Service-Discovery",
-                            description = "跨服務查找方式，固定為 eureka",
-                            schema = @Schema(type = "string", example = "eureka")),
+                    headers = @Header(name = "X-Downstream-Discovery-Mode",
+                            description = "Account 透過 OpenFeign 與 Eureka 尋找 loan/card",
+                            schema = @Schema(type = "string", example = "eureka-openfeign")),
                     content = @Content(schema = @Schema(implementation = CustomerAccLoanCardDetailDto.class))),
             @ApiResponse(responseCode = "400", description = "手機號碼格式不正確",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
@@ -58,7 +58,7 @@ public class CustomerController {
         CustomerAccLoanCardDetailDto detailDto = customerService.fetchCustomerAccLoanCardDetailEurekaDto(mobileNumber);
         return ResponseEntity
                 .status(HttpStatus.OK)
-                .header("X-Cross-Service-Discovery", "eureka")
+                .header("X-Downstream-Discovery-Mode", "eureka-openfeign")
                 .body(detailDto);
     }
 
@@ -69,9 +69,9 @@ public class CustomerController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "查詢成功；回應 Header 可確認使用 Kubernetes Service",
-                    headers = @Header(name = "X-Cross-Service-Discovery",
-                            description = "跨服務查找方式，固定為 kubernetes-service",
-                            schema = @Schema(type = "string", example = "kubernetes-service")),
+                    headers = @Header(name = "X-Downstream-Discovery-Mode",
+                            description = "Account 透過 OpenFeign 與 Service DNS 尋找 loan/card",
+                            schema = @Schema(type = "string", example = "service-dns-openfeign")),
                     content = @Content(schema = @Schema(implementation = CustomerAccLoanCardDetailDto.class))),
             @ApiResponse(responseCode = "400", description = "手機號碼格式不正確",
                     content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
@@ -87,7 +87,7 @@ public class CustomerController {
         CustomerAccLoanCardDetailDto detailDto = customerService.fetchCustomerAccLoanCardDetailKubernetesDto(mobileNumber);
         return ResponseEntity
                 .status(HttpStatus.OK)
-                .header("X-Cross-Service-Discovery", "kubernetes-service")
+                .header("X-Downstream-Discovery-Mode", "service-dns-openfeign")
                 .body(detailDto);
     }
 }

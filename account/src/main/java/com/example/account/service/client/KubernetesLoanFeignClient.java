@@ -25,5 +25,5 @@ public interface KubernetesLoanFeignClient {
     @GetMapping("/api/fetch-loan")
     ResponseEntity<LoanDto> fetchLoanDetails(
             @RequestParam String mobileNumber,
-            @RequestHeader("X-Load-Balancing-Source") String loadBalancingSource);
+            @RequestHeader("X-Downstream-Load-Balancing-Source") String loadBalancingSource);
 }

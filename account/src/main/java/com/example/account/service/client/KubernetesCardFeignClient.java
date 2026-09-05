@@ -25,5 +25,5 @@ public interface KubernetesCardFeignClient {
     @GetMapping("/api/fetch-card")
     ResponseEntity<CardDto> fetchCardDetails(
             @RequestParam String mobileNumber,
-            @RequestHeader("X-Load-Balancing-Source") String loadBalancingSource);
+            @RequestHeader("X-Downstream-Load-Balancing-Source") String loadBalancingSource);
 }
