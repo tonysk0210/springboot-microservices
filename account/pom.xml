@@ -114,7 +114,8 @@
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
         <!-- 一般 Resilience4j：包裝 Account 的 Feign 呼叫，提供 Circuit Breaker、逾時、Retry 與 RateLimiter。
-             Bulkhead 未由此 starter 提供；需要時另加 resilience4j-bulkhead。 -->
+             RateLimiter 目前使用單一 instance 的記憶體計數，不需要 Reactive Redis；
+             Bulkhead 未由此 starter 提供，需要時另加 resilience4j-bulkhead。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>

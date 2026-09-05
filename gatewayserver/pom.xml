@@ -61,8 +61,9 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
         </dependency>
-        <!-- Reactive Redis 支援：以非阻塞方式存取 Redis，
-             可供 Gateway 的 RedisRateLimiter 儲存與計算限流狀態。 -->
+        <!-- Reactive Redis：供 Gateway 的 RedisRateLimiter 儲存限流計數。
+             使用 Redis 是為了讓多個 Gateway instance 共用同一份限流狀態；
+             Account 使用 Resilience4j 的記憶體限流，不需要此依賴。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>

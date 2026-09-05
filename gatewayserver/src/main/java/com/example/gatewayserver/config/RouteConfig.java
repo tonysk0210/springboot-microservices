@@ -1,10 +1,10 @@
 package com.example.gatewayserver.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -42,7 +42,9 @@ public class RouteConfig {
                                 // 4. Account 無法連線時，轉發到 Gateway 的 fallback 端點。
                                 .circuitBreaker(config -> config
                                         .setName("accountCircuitBreaker")
-                                        .setFallbackUri("forward:/contactSupport"))
+                                        .setFallbackUri("forward:/contactSupport")
+                                        // Account 回傳 503 時，將此狀態計入 Circuit Breaker 失敗次數。
+                                        .addStatusCode("SERVICE_UNAVAILABLE"))
                         )
                         // lb:// 透過 Eureka／LoadBalancer 尋找 account 實例。
                         .uri("lb://ACCOUNT"))
@@ -58,10 +60,10 @@ public class RouteConfig {
                                 .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
                                 // 1. 標示 Gateway 透過 Eureka 尋找 Loan。
                                 .addResponseHeader("X-Gateway-Discovery-Mode", "eureka")
-                                // 2. Gateway 連線失敗時，GET 請求最多重試 3 次。
+                                // 2. Client 只呼叫一次；Gateway 遇到可重試的失敗時，會自動重試 GET 請求最多 3 次。
                                 .retry(retryConfig -> retryConfig
-                                        .setRetries(3)
                                         .setMethods(HttpMethod.GET)
+                                        .setRetries(3)
                                         .setBackoff(
                                                 // 第一次重試前等待 100 毫秒。
                                                 Duration.ofMillis(100),
@@ -109,8 +111,13 @@ public class RouteConfig {
                 .build();
     }
 
+    /*
+     * Gateway RateLimiter 設定：RedisRateLimiter 定義令牌規則，KeyResolver 依使用者分組計算限流；兩者共同限制 Card 路由的請求速率。
+     */
+
     /**
-     * Redis 令牌桶限流器：每秒補充 1 個令牌，桶上限為 1，每次請求消耗 1 個令牌。
+     * Redis 令牌桶限流器：每秒補充 1 個令牌，最多累積 1 個，每次請求消耗 1 個。計數存於 Redis，讓多個 Gateway instance 共用限流狀態。
+     * Redis 令牌桶會讓每個使用者每秒最多通過 1 個請求，超過時回傳 429 Too Many Requests。
      */
     @Bean
     public RedisRateLimiter redisRateLimiter() {
@@ -118,7 +125,7 @@ public class RouteConfig {
     }
 
     /**
-     * 以 request 的 user header 作為限流 key；未提供時統一使用 anonymous。
+     * 以 request 的 user Header 分開計算限流；未提供時共用 anonymous key。
      */
     @Bean
     KeyResolver userKeyResolver() {

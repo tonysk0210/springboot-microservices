@@ -228,6 +228,11 @@ management:
     health:
       show-details: always
 
+  # 將 Circuit Breaker 狀態加入 /actuator/health（預設關閉）。這只負責監控顯示，不會啟用或設定 Circuit Breaker。
+  health:
+    circuitbreakers:
+      enabled: true
+
     # /actuator/env 預設把「所有」值遮成 ****** （Spring Boot 3.0 起的行為 ——
     # 它分不清哪個是機密，所以一律遮）。只看得到「值來自哪一層」，看不到值本身。
     #
@@ -247,10 +252,7 @@ management:
     env:
       show-values: ALWAYS
 
-  # 將 Circuit Breaker 狀態加入 /actuator/health（預設關閉）。這只負責監控顯示，不會啟用或設定 Circuit Breaker。
-  health:
-    circuitbreakers:
-      enabled: true
+
 
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
@@ -311,12 +313,12 @@ resilience4j.circuitbreaker:
 resilience4j.retry:
   configs:
     default:
-      maxAttempts: 4
-      waitDuration: 100
-      enableExponentialBackoff: true       # 100 → 200 → 400
-      exponentialBackoffMultiplier: 2
-      exponentialMaxWaitDuration: 1s
-      ignoreExceptions: # 這些「絕對不重試」
+      maxAttempts: 4                     # 最多執行 4 次，包含第一次呼叫
+      waitDuration: 100                  # 第一次重試前等待 100 毫秒
+      enableExponentialBackoff: true     # 啟用指數退避：100 → 200 → 400 毫秒
+      exponentialBackoffMultiplier: 2    # 每次等待時間乘以 2
+      exponentialMaxWaitDuration: 1s     # 單次等待最多 1 秒
+      ignoreExceptions: # 以下例外不重試，直接回傳錯誤
         - com.example.account.exception.ResourceNotFoundException
         - com.example.account.exception.CustomerAlreadyExistsException
 
