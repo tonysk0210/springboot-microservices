@@ -67,13 +67,13 @@ services:
       # 容器使用 kafka:9092；本機程式使用 localhost:29092。
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
 
-    # 容器啟動後先等待 40 秒，再每 10 秒檢查一次；單次最多等 5 秒，連續失敗 5 次才標記為不健康。
+    # 容器啟動後先等待 120 秒，再每 10 秒檢查一次；單次最多等 5 秒，連續失敗 5 次才標記為不健康。
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:8080/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 120s
 
     # 複用資料庫業務服務的共用設定。
     extends:
@@ -106,7 +106,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 120s
 
     extends:
       file: common.yml
@@ -130,7 +130,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 40s
+      start_period: 120s
 
     extends:
       file: common.yml

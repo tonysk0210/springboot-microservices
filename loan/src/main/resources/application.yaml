@@ -9,7 +9,7 @@ logging:
   pattern:
     # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。
     # %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-GatewayServer-custom-correlation-id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-Gateway-Correlation-Id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
   application:

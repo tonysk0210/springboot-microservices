@@ -31,7 +31,7 @@ public class ResponseTraceFilter {
             // 在回應送出前寫入 Header，避免 response 已 committed 而無法修改。
             exchange.getResponse().beforeCommit(() -> {
                 exchange.getResponse().getHeaders().set(FilterUtility.CORRELATION_ID, correlationId);
-                log.debug("已將 correlation-id 寫入 Response Header (X-GatewayServer-custom-correlation-id)：{}", correlationId);
+                log.debug("已將 correlation-id 寫入 Response Header (X-Gateway-Correlation-Id)：{}", correlationId);
                 return Mono.empty();
             });
 

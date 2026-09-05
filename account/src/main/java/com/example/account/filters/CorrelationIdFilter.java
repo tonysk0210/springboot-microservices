@@ -24,10 +24,10 @@ import java.util.UUID;
 public class CorrelationIdFilter extends OncePerRequestFilter {
 
     // 必須與 Gateway 使用相同的 Header 名稱。
-    public static final String CORRELATION_ID = "X-GatewayServer-custom-correlation-id";
+    public static final String CORRELATION_ID = "X-Gateway-Correlation-Id";
 
-    // logging pattern 透過 %X{X-GatewayServer-custom-correlation-id} 讀取此值。
-    public static final String MDC_KEY = "X-GatewayServer-custom-correlation-id";
+    // logging pattern 透過 %X{X-Gateway-Correlation-Id} 讀取此值。
+    public static final String MDC_KEY = "X-Gateway-Correlation-Id";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {

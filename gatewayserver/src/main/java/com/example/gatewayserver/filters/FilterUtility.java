@@ -13,7 +13,7 @@ import java.util.List;
 public class FilterUtility {
 
     // Gateway 與下游服務必須使用相同的 Header 名稱。
-    public static final String CORRELATION_ID = "X-GatewayServer-custom-correlation-id";
+    public static final String CORRELATION_ID = "X-Gateway-Correlation-Id";
 
     /**
      * 從請求 Header 讀取 correlation ID；不存在時回傳 null。
