@@ -309,6 +309,29 @@ services:
         condition: service_healthy
 
   # ---------------------------------------------------------------------------
+  #  redis —— Gateway RequestRateLimiter 共用的限流計數器。
+  #  多個 Gateway instance 透過 Redis 共用額度；key 由 KeyResolver 產生
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    container_name: redis-ms
+    ports:
+      - "6379:6379"  # 供主機端查看 Redis 資料。
+
+    # 不掛 volume；限流計數是短暫資料，Redis 重啟後重新計算即可。
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    # 非 Spring 服務，只套用記憶體限制。
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
   #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
   #
   #  🔑 account 同時接兩個 broker：
@@ -433,37 +456,7 @@ services:
       retries: 5
       start_period: 40s
 
-  # ---------------------------------------------------------------------------
-  #  redis —— Gateway 限流（RequestRateLimiter）的計數器
-  #
-  #  ⚠ 為什麼不能存在 gateway 的記憶體裡：多台 gateway 會各算各的，
-  #    「每秒 1 次」變成實際可以打 N 次。Redis 是那份「共用的計數器」，
-  #    而且 Gateway 內建的 Lua 腳本保證多台同時加也不會算錯。
-  #
-  #  資料長這樣（key 就是 KeyResolver 回傳的字串）：
-  #      request_rate_limiter.{alice}.tokens
-  #      request_rate_limiter.{anonymous}.tokens
-  # ---------------------------------------------------------------------------
-  redis:
-    image: redis:8-alpine
-    container_name: redis-ms
-    ports:
-      - "6379:6379"    # 主機端連進來看資料用（docker exec redis-ms redis-cli）
 
-    # ⚠ 刻意「不掛 volume」—— 限流計數本來就是短命資料（秒級），
-    #   重啟後歸零反而是乾淨的起點。跟 rabbitmq 不同，那個 image 有
-    #   VOLUME 指令會自動長匿名 volume，redis 官方 image 沒有，不用擔心孤兒。
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]    # 回 PONG 就算健康
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-
-    # 不是 Spring 服務，只要記憶體上限那一層
-    extends:
-      file: common.yml
-      service: resource-limits
 
   # ---------------------------------------------------------------------------
   #  keycloak —— 授權伺服器（發 token 的那一方）
