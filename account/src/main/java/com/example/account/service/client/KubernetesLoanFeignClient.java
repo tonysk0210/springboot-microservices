@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
  * 直接呼叫 loan Service，不透過 Eureka 尋找實例。
  * Compose／Kubernetes 由環境變數提供 {@code http://loan:8090}；
  * IntelliJ 未設定時使用預設的 {@code http://localhost:8090}。
- * 因此 Eureka 未啟動時仍可呼叫，但 loan Service 必須可連線；失敗時由 fallback 回傳 null。
+ * 因此 Eureka 未啟動時仍可呼叫 (不走 Eureka)，但 loan Service 必須可連線；失敗時由 fallback 回傳 null。不影響 Account 聚合查詢的完成。
  */
 @FeignClient(
         name = "loanKubernetes",

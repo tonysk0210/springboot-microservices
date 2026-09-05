@@ -10,8 +10,7 @@ logging:
     com.example.account.service.client: DEBUG
     org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
-    # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。
-    # %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
+    # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。 %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-Gateway-Correlation-Id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
@@ -54,73 +53,24 @@ spring:
     openfeign:
       client:
         config:
-          # default 套用到所有 Feign Client；也可改用 @FeignClient 的 name 指定單一 Client。
+          # default 套用到所有 Feign Client；也可用 @FeignClient 的 name 個別設定。
           default:
-            # none 不記錄；basic 記錄方法、URL、狀態碼與耗時；
-            # headers 另外記錄標頭；full 再記錄完整請求／回應內容。
-            # 正式環境建議使用 basic 或 none，避免敏感資料寫入 log。
+            # basic 記錄方法、URL、狀態碼與耗時；正式環境避免使用 full，以免請求內容或敏感資料寫入 log。
             loggerLevel: basic
 
-            # 逾時。⚠ 預設值很寬鬆（連線 10 秒、讀取 60 秒），
-            #   對方卡住時你的執行緒也跟著卡 60 秒，連鎖拖垮很容易發生。
-            #
-            # 🔑 這是「最內層」的逾時，要比 gateway 的短，整組是：
-            #        本檔案 read-timeout              2s   ← 最內層
-            #        gateway 的 response-timeout      5s
-            #        gateway 的 timelimiter           8s   ← 最外層
-            #    外層比內層短的話，account 還在等 loan、gateway 已經回 504 了，
-            #    那些工作全部白做，log 上還會出現「gateway 逾時但 account 成功」的矛盾。
-            #
-            # ⚠ 這裡的 2 秒是「單一次」Feign 呼叫。account 要打 loan 和 card 兩次，
-            #   最壞情況 2 + 2 = 4 秒，仍在 gateway 的 5 秒之內。
+            # 本專案停用 Resilience4j 的 Feign 執行緒池後，TimeLimiter 無法可靠中斷
+            # 阻塞中的同步 Feign；因此由這兩個 Feign timeout 作為等待時間的替代保護。
+            # 連線最多 1 秒、連線後等待回應最多 2 秒；這些時間也會消耗 Gateway 的 7 秒等待時間。
             connect-timeout: 1000
             read-timeout: 2000
 
-      # 讓 Feign 呼叫交由 Spring Cloud CircuitBreaker 包裝，以套用斷路與 fallback。
+      # 將 Feign 呼叫交由 Spring Cloud CircuitBreaker 處理，啟用斷路器與 fallback。
       circuitbreaker:
         enabled: true
 
-    # ⚠⚠ 這一行不能省，少了它「correlation-id 會斷在 account」⚠⚠
-    #
-    # ── 發生什麼事 ──────────────────────────────────────────────────────────
-    # 上面開了斷路器之後，Feign 的呼叫「被搬到另一條執行緒上跑」：
-    #
-    #     A = http-nio-8080-exec-5   Tomcat 處理這次請求的執行緒
-    #     B = pool-3-thread-3        斷路器自己的執行緒池
-    #
-    #     A  Controller → Service → 查 DB          都在 A
-    #     B      └─ 打 loan / card                 只有這段跑到 B
-    #     A  組回應、跑 fallback                    回到 A
-    #
-    # correlation-id 放在 MDC，而 MDC 是「每條執行緒各一份」，不會跟著工作走。
-    # 所以 B 拿到的是空的：
-    #     [http-nio-8080-exec-5] [account,aaea4764-...]   ← A，有 ID
-    #     [pool-3-thread-3]      [account,]               ← B，沒 ID
-    #
-    # 更麻煩的是 FeignInterceptorConfig 也在 B 上執行 —— 它從 MDC 撈 ID 來加標頭，
-    # 撈到 null 就不加，所以 loan / card 收到的請求「沒有 myBank-correlation-id」，
-    # 追蹤鏈直接斷在 account。而且完全不會報錯。
-    #
-    # ── 為什麼要換執行緒 ────────────────────────────────────────────────────
-    # 為了 TimeLimiter（超時強制中斷）。一條執行緒卡在等網路時就什麼都做不了，
-    # 包括「數秒數、時間到就放棄」—— 你不能一邊睡覺一邊叫自己起床。
-    # 所以要兩個人：B 去打 HTTP，A 在旁邊計時，時間到由 A 喊停 B。
-    #
-    # ── 這行做什麼 ──────────────────────────────────────────────────────────
-    # 不要那條執行緒池了，工作就在 A 上做完 → MDC 保住。
-    # ⚠ 副作用：TimeLimiter 失效（原始碼裡它只在「有執行緒池」的分支才套用）。
-    #   但 Feign 自己的 connect-timeout / read-timeout（上面 2 秒 / 5 秒）本來就
-    #   會擋住卡住的 HTTP 呼叫，而且分得出「連不上」和「回得慢」，更精準。
-    #
-    # ⚠ 只關 TimeLimiter（disable-time-limiter）沒有用 —— 原始碼的分支條件是
-    #   「executorService 是不是 null」，跟 TimeLimiter 無關，照樣換執行緒。
-    #
-    # ── 另一種解法（本專案不採用）────────────────────────────────────────────
-    # 保留執行緒池，改用 Customizer 換掉工廠的 ExecutorService
-    #（configureExecutorService），自己包一層在提交時複製 MDC 過去。
-    # ⚠ 不能用 Resilience4j 的 ContextPropagator —— 那個只對它自家的
-    #   ThreadPoolBulkhead 生效，這裡用的是普通的 Executors.newCachedThreadPool()。
-    # 要多寫幾十行來換一個 Feign 已經有的功能，不划算。
+    # Spring Cloud CircuitBreaker 整合 Resilience4j 時，預設會使用獨立執行緒執行同步 Feign，主要是為了支援 TimeLimiter 的逾時控制。
+    # 但執行緒切換後 MDC 不會自動傳遞，可能導致 correlation-id 遺失。
+    # 本專案因此停用該執行緒池，讓 Feign 留在目前請求的執行緒執行；等待時間改由 Feign 的 connect-timeout／read-timeout 控制。
     circuitbreaker:
       resilience4j:
         disable-thread-pool: true
@@ -268,7 +218,6 @@ management:
     env:
       enabled: true
 
-
   endpoint:
     # 允許 POST http://localhost:8080/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
     shutdown:
@@ -297,6 +246,11 @@ management:
     #   WHEN_AUTHORIZED 要搭配 Spring Security 才有意義，沒裝等於 NEVER。
     env:
       show-values: ALWAYS
+
+  # 將 Circuit Breaker 狀態加入 /actuator/health（預設關閉）。這只負責監控顯示，不會啟用或設定 Circuit Breaker。
+  health:
+    circuitbreakers:
+      enabled: true
 
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
@@ -342,25 +296,17 @@ management:
       export:
         enabled: false
 
-  # 把斷路器狀態併進 /actuator/health（預設是關的）。
-  # ⚠ management.health.* 是「健康指標的開關」，management.endpoint.* 才是
-  #   「端點自己的行為」（show-details / show-values）。放錯層不會報錯，只是沒效果。
-  health:
-    circuitbreakers:
-      enabled: true
-
-
-
-# Resilience4j Circuit Breaker 的共用預設設定。
-# CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；
-# OPEN 等待指定時間後轉為 HALF_OPEN，以少量試探請求判斷下游是否恢復。
+# Circuit Breaker 統計下游呼叫失敗率，避免持續呼叫故障服務。
+# CLOSED 正常呼叫；OPEN 暫停呼叫；HALF_OPEN 放行少量請求測試是否恢復。
+# 至少累計 5 次呼叫，且最近 5 次的失敗率達 50% 時暫停呼叫 10 秒；之後只允許 2 次測試請求確認服務是否恢復。
 resilience4j.circuitbreaker:
   configs:
     default:
-      slidingWindowSize: 10                    # 以最近 10 次呼叫作為失敗率統計視窗
-      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
-      failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
-      waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN
+      slidingWindowSize: 5                     # 以最近 5 次呼叫統計成功／失敗
+      minimumNumberOfCalls: 5                  # 至少累計 5 次後才計算失敗率
+      failureRateThreshold: 50                 # 失敗率達 50% 時切換為 OPEN
+      waitDurationInOpenState: 10000           # OPEN 維持 10 秒後進入 HALF_OPEN
+      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 最多放行 2 次測試呼叫
 
 resilience4j.retry:
   configs:

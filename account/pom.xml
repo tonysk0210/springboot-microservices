@@ -113,6 +113,12 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
+        <!-- 一般 Resilience4j：包裝 Account 的 Feign 呼叫，提供 Circuit Breaker、逾時、Retry 與 RateLimiter。
+             Bulkhead 未由此 starter 提供；需要時另加 resilience4j-bulkhead。 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+        </dependency>
         <!-- Feign 的 Micrometer 整合 —— 讓 Feign 呼叫也被追蹤。
              ⚠⚠ 少了它 traceId 會斷在 account ⚠⚠
              症狀：gateway 和 account 的 traceId 一樣，但 loan / card 各自產生新的：
@@ -124,13 +130,7 @@
             <groupId>io.github.openfeign</groupId>
             <artifactId>feign-micrometer</artifactId>
         </dependency>
-        <!-- Spring Cloud Circuit Breaker 的 Resilience4j 實作。
-             ⚠ 名字只寫 circuitbreaker，實際上整套都帶進來了 —— 斷路器、逾時、@Retry、@RateLimiter 都不用再加依賴。
-             ⚠ 只有 bulkhead（限併發）沒帶，要用得自己加 resilience4j-bulkhead。 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
-        </dependency>
+
         <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
              Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
         <dependency>

@@ -37,9 +37,9 @@ public class RouteConfig {
                                 .rewritePath("/bank/account/(?<segment>.*)", "/${segment}")
                                 // 2. 在回應 header 加上 X-Response-Time，方便觀察。
                                 .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                // 標示 Gateway 透過 Eureka 尋找 Account。
+                                // 3. 標示 Gateway 透過 Eureka 尋找 Account。
                                 .addResponseHeader("X-Gateway-Discovery-Mode", "eureka")
-                                // 3. Account 無法連線時，轉發到 Gateway 的 fallback 端點。
+                                // 4. Account 無法連線時，轉發到 Gateway 的 fallback 端點。
                                 .circuitBreaker(config -> config
                                         .setName("accountCircuitBreaker")
                                         .setFallbackUri("forward:/contactSupport"))
@@ -56,9 +56,9 @@ public class RouteConfig {
                         .filters(f -> f
                                 .rewritePath("/bank/loan/(?<segment>.*)", "/${segment}")
                                 .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                // 標示 Gateway 透過 Eureka 尋找 Loan。
+                                // 1. 標示 Gateway 透過 Eureka 尋找 Loan。
                                 .addResponseHeader("X-Gateway-Discovery-Mode", "eureka")
-                                // 1. Gateway 連線失敗時，GET 請求最多重試 3 次。
+                                // 2. Gateway 連線失敗時，GET 請求最多重試 3 次。
                                 .retry(retryConfig -> retryConfig
                                         .setRetries(3)
                                         .setMethods(HttpMethod.GET)
@@ -83,9 +83,9 @@ public class RouteConfig {
                         .filters(f -> f
                                 .rewritePath("/bank/card/(?<segment>.*)", "/${segment}")
                                 .addResponseHeader("X-Response-Time", LocalDateTime.now().toString())
-                                // 標示 Gateway 透過 Eureka 尋找 Card。
+                                // 1. 標示 Gateway 透過 Eureka 尋找 Card。
                                 .addResponseHeader("X-Gateway-Discovery-Mode", "eureka")
-                                // 1. 以 Redis 令牌桶限制請求速率，避免 Card 被過量請求壓垮。
+                                // 2. 以 Redis 令牌桶限制請求速率，避免 Card 被過量請求壓垮。
                                 .requestRateLimiter(config -> config
                                         // 使用每秒補充速率、桶容量與單次請求成本的設定。
                                         .setRateLimiter(redisRateLimiter())

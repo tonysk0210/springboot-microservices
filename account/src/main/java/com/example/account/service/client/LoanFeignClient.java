@@ -24,6 +24,6 @@ public interface LoanFeignClient {
     @GetMapping("/api/fetch-loan")
     ResponseEntity<LoanDto> fetchLoanDetails(
             @RequestParam String mobileNumber,
-            // Feign 會將呼叫端傳入的 eureka / k8s / direct 寫入 HTTP Header，供下游 log 觀測來源；此標記只用於追蹤，不會決定實際的 LoadBalancer。
+            // 將呼叫端傳入的來源標記（目前為 eureka 或 service-dns）寫入 Header，供下游 log 觀測；這只是追蹤資訊，不會決定實際的服務尋找或 LoadBalancer。
             @RequestHeader("X-Downstream-Load-Balancing-Source") String loadBalancingSource);
 }

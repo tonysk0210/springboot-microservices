@@ -20,13 +20,14 @@ spring:
     gateway:
       server:
         webflux:
-          # Gateway 呼叫後端的 Netty HTTP 逾時，套用所有路由。
-          # 逾時應由內到外遞增：Feign 2s → Gateway 5s → timelimiter 8s。
+          # Gateway 全域 HTTP Client 設定，套用到所有由 Gateway 轉發的 HTTP 路由。
+          # 這組逾時也用來測試 Gateway 的 Resilience4j Circuit Breaker：讓下游處理超過時限，Gateway 產生逾時失敗，累計後觸發 fallback。
+          # 逾時應由內到外遞增：Feign 單次約 3s（連線 1s + 回應 2s）→ Gateway 7s → timelimiter 10s。
           httpclient:
-            # 建立 TCP 連線的最長時間（毫秒）；不包含 response-timeout。
+            # 建立 TCP 連線的最長時間（毫秒）；超時會被視為連線失敗。
             connect-timeout: 1000
-            # 送出請求到收到完整回應的最長時間，包含後端處理時間。
-            response-timeout: 5s
+            # 送出請求到收到完整回應的最長時間；超時會觸發 Circuit Breaker 測試情境。
+            response-timeout: 7s
 
   # Redis —— 限流（RequestRateLimiter）的計數器。
   #
@@ -120,6 +121,11 @@ management:
       # 顯示 Spring Environment 的設定值：YAML、環境變數、JVM 參數與命令列參數等；僅適合本機。
       show-values: ALWAYS
 
+  # 將 Circuit Breaker 狀態加入 /actuator/health（預設關閉）。這只負責監控顯示，不會啟用或設定 Circuit Breaker。
+  health:
+    circuitbreakers:
+      enabled: true
+
   # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
   # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
   metrics:
@@ -164,36 +170,28 @@ management:
       export:
         enabled: false
 
-  # 把斷路器狀態併進 /actuator/health，跳開的那個會顯示 CIRCUIT_OPEN。
-  # ⚠ 預設是關的。
-  health:
-    circuitbreakers:
-      enabled: true
 
-
-
-
-
-# 斷路器分成兩棵獨立的設定樹，長得像但管的事不同：
-#     circuitbreaker  失敗幾次跳開、跳開多久
-#     timelimiter     等多久算失敗           ← 改斷路器預設 1 秒的是這棵
-#
-# CLOSED：正常放行並統計結果；失敗率達門檻後轉為 OPEN，暫時拒絕請求；
-# OPEN 等待指定時間後轉為 HALF_OPEN，以少量試探請求判斷下游是否恢復。
+# Circuit Breaker 統計下游呼叫失敗率，避免持續呼叫故障服務。
+# CLOSED 正常呼叫；OPEN 暫停呼叫；HALF_OPEN 放行少量請求測試是否恢復。
+# 至少累計 5 次呼叫，且最近 5 次的失敗率達 50% 時暫停呼叫 10 秒；之後只允許 2 次測試請求確認服務是否恢復。
 resilience4j.circuitbreaker:
   configs:
     default:
-      slidingWindowSize: 10                    # 以最近 10 次呼叫作為失敗率統計視窗
-      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 狀態最多放行 2 次試探呼叫
-      failureRateThreshold: 50                 # 統計視窗內失敗率達 50% 時切換為 OPEN
-      waitDurationInOpenState: 10000           # OPEN 維持 10 秒（10000 ms）後進入 HALF_OPEN
+      slidingWindowSize: 5                     # 以最近 5 次呼叫統計成功／失敗
+      minimumNumberOfCalls: 5                  # 至少累計 5 次後才計算失敗率
+      failureRateThreshold: 50                 # 失敗率達 50% 時切換為 OPEN
+      waitDurationInOpenState: 10000           # OPEN 維持 10 秒後進入 HALF_OPEN
+      permittedNumberOfCallsInHalfOpenState: 2 # HALF_OPEN 最多放行 2 次測試呼叫
+# 測試 Gateway Circuit Breaker：在 AccountConfigController#getContactInfo() 設 breakpoint，
+# 透過 /bank/account/api/contact-info 呼叫 Gateway，讓每次請求停住超過 Gateway 逾時； 5 次中有 3 次失敗（失敗率 60%）後，accountCircuitBreaker 會變成 OPEN，請求改走 /contactSupport。
+
 
 # 斷路器包住的整段處理的總時限（含查 Eureka、挑實例、其他 filter），最外層兜底用。
 # ⚠ 不寫預設只有 1 秒，第一次呼叫很容易破 → Postman 幾乎立刻跳 fallback。
 #   改這個 1 秒只能靠這棵樹，把 httpclient 的 response-timeout 調大沒有用。
-# 🔑 要比上面 httpclient 的 5s 大。反過來的話錯誤都變成籠統的 TimeoutException，
+# 🔑 要比上面 httpclient 的 7s 大。反過來的話錯誤都變成籠統的 TimeoutException，
 #    分不出是「連不上」還是「回得慢」。
 resilience4j.timelimiter:
   configs:
     default:
-      timeoutDuration: 8s
+      timeoutDuration: 10s

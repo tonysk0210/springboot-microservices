@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 /**
- * 處理斷路器的內部 fallback 請求。
+ * 處理斷路器 Circuit Breaker 的內部 fallback 請求。
  */
 @RestController
 public class FallbackController {

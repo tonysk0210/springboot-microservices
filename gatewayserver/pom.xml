@@ -56,8 +56,7 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
-        <!-- WebFlux Gateway 的 Reactive Circuit Breaker：整合 Reactor Resilience4j，
-             供 Gateway CircuitBreaker filter 執行斷路保護與 fallback。 -->
+        <!-- Reactive Resilience4j：供 WebFlux Gateway 路由使用 Circuit Breaker 與 fallback。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
