@@ -5,16 +5,11 @@ server:
 
 logging:
   level:
-    com.example.gatewayserver: DEBUG # 設定日誌等級
+    # 觀察自訂 Filter、路由轉送與 correlation ID 的建立／傳遞。
+    com.example.gatewayserver: DEBUG
   pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,traceId,spanId](洋紅) logger名稱(黃) - 訊息
-    #
-    # ⚠ 比 account / loan / card 少一格 correlationId —— 那格在這裡永遠是空的。
-    #   correlation-id 是我們自己 MDC.put 的，WebFlux 換執行緒就沒了。
-    #   Gateway 的 correlation-id 靠 RequestTraceFilter / ResponseTraceFilter 裡的
-    #   log.debug 直接寫在訊息裡，不走 pattern。
-    # 🔑 traceId / spanId 有值，但「要靠上面的 spring.reactor.context-propagation: auto」——
-    #    框架有辦法把它同步回 MDC，我們手寫的 correlation-id 沒有。差別在這裡。
+    # Console log 格式：時間、等級、執行緒、服務名、traceId/spanId、logger 與訊息。
+    # %X{traceId:-} 和 %X{spanId:-} 從 MDC 讀取追蹤 ID；沒有值時留白。
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:

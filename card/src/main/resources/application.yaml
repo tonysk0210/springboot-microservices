@@ -7,10 +7,9 @@ logging:
     org.springframework.jdbc.datasource.init: DEBUG
     org.hibernate.SQL: DEBUG
   pattern:
-    # 時間(綠) 等級(藍) [執行緒](紅) [服務名,correlationId,traceId,spanId](洋紅) logger名稱(黃) - 訊息
-    # %X{correlationId:-} 撈 MDC 裡的追蹤 ID（CorrelationIdFilter 放進去的）。
-    # 完整說明見 account 的 application.yaml。
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+    # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。
+    # %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-GatewayServer-custom-correlation-id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
   application:

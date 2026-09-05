@@ -10,9 +10,9 @@ logging:
     com.example.account.service.client: DEBUG
     org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
-    # 自訂彩色 log 格式：時間、等級、執行緒、服務名、追蹤 ID 與 logger。
-    # %X{...} 讀取 MDC；同一組 correlationId／traceId 可串起各服務的 log。完整格式需直接設定在 logging.pattern.console。
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{correlationId:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+    # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。
+    # %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-GatewayServer-custom-correlation-id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
 spring:
   application:
