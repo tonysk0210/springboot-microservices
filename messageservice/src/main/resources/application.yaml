@@ -1,15 +1,17 @@
 server:
   port: 9010
 
+logging:
+  level:
+    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
+  pattern:
+    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+
 spring:
   application:
     name: messageservice
 
-  # RabbitMQ 連線。本服務「所有」業務流量都走這裡，沒有它就完全不會被觸發。
-  # 🔑 這四行可以刪掉（Spring Boot 預設就是 localhost/5672/guest/guest），
-  #    寫出來只是讓依賴關係看得見 —— 跟 configserver 同一種做法。
-  # ⚠ 容器裡的 localhost 是容器自己，要由 compose 覆寫成 SPRING_RABBITMQ_HOST: rabbitmq
-  #   （其他服務是靠 common.yml 的 microservice-base 帶進來的）。
+  # RabbitMQ 供 Spring Cloud Bus 廣播 refresh；本機使用 localhost，容器由 Compose 改為 rabbitmq。
   rabbitmq:
     host: localhost
     port: 5672
@@ -70,39 +72,23 @@ management:
     tags:
       application: ${spring.application.name}
 
-  # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
-  # 🔑 對本服務特別重要：它沒有 HTTP 請求可以掛 correlation-id
-  #    （那套是手寫的 CorrelationIdFilter，只處理 HTTP 標頭）。
-  #    traceId 是唯一能把 messageservice 的 log 跟 account 串起來的東西。
-  #
-  # 🔑 怎麼串起來的：account 用 StreamBridge 送訊息時，OTel 自動在 AMQP header
-  #    塞一個 traceparent；這邊收到訊息時再讀回來，於是兩邊 traceId 相同。
-  #    整段完全不用寫程式碼。
-  #
-  # ⚠ 設定名稱與其他四個服務一致，改的時候記得一起改。
+  # OpenTelemetry 建立訊息處理的 trace；本服務沒有 HTTP correlation-id filter。
   tracing:
     sampling:
-      probability: 1.0        # 1.0 = 全部採樣。正式環境通常 0.1
+      # 1.0 = 全部採樣；正式環境可調低以減少 span 資料量。
+      probability: 1.0
 
   opentelemetry:
     tracing:
       export:
         otlp:
-          # 本機跑 → localhost:4318（Tempo 容器有 ports 映射）
-          # 容器跑 → compose 覆寫成 http://tempo:4318/v1/traces
-          # ⚠ Tempo 沒開時每 30 秒噴一次 ConnectException 堆疊，屬正常噪音。
+          # 將 trace span 送到 Tempo；容器環境由 Compose 改用 tempo 主機名。
           endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
 
-  # ⚠⚠ 不能省 —— 少了它每分鐘噴一次 404 ⚠⚠
-  # spring-boot-starter-opentelemetry 順帶帶進 micrometer-registry-otlp，
-  # 它預設把「指標」也用 OTLP 送到 /v1/metrics，但 Tempo 只收 /v1/traces。
+  # 停用 OTel Metrics 輸出；指標改由 Prometheus 從 /actuator/prometheus 抓取。
   otlp:
     metrics:
       export:
         enabled: false
 
-logging:
-  level:
-    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
-  pattern:
-    console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
+
