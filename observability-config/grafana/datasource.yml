@@ -6,10 +6,23 @@ datasources:
   # 日誌資料源 Log
   - name: Loki
     type: loki
+    uid: loki              # 固定 uid，讓 Tempo 的 tracesToLogsV2 可以回指這個資料源。
     access: proxy          # 由 Grafana 後端連線 Loki。
     # loki 是 Compose 服務名稱。
     url: http://loki:3100
     isDefault: true
+    jsonData:
+      # 從 log 擷取 traceId，建立跳往 Tempo 的連結。
+      derivedFields:
+        - name: TraceID
+          # 擷取 32 碼 traceId；後面的 16 碼用來確認 spanId 格式。
+          matcherRegex: ',([0-9a-f]{32}),[0-9a-f]{16}\]'
+          # 將擷取到的 traceId 傳給 Tempo 查詢。
+          url: '$${__value.raw}'
+          # 連結顯示文字。
+          urlDisplayLabel: 'View Trace'
+          # 對應下方 Tempo data source 的 UID。
+          datasourceUid: tempo
 
   # 指標資料源 Metrics
   - name: Prometheus
@@ -20,5 +33,6 @@ datasources:
   # 追蹤資料源 Traces
   - name: Tempo
     type: tempo
+    uid: tempo
     access: proxy
     url: http://tempo:3200      # 查詢使用 3200；4318 是接收 span 的 port。

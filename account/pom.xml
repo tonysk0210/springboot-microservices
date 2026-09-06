@@ -149,7 +149,8 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
-        <!-- OpenTelemetry：自動追蹤 HTTP、Feign、DB 等呼叫，並把 trace 送到 Tempo。 -->
+        <!-- OpenTelemetry 做兩件事：將 traceId／spanId 放入 MDC 供 log 顯示，
+             並把 span 透過 OTLP 傳送到 Tempo。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-opentelemetry</artifactId>
