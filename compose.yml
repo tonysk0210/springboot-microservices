@@ -332,6 +332,59 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
+  #  loki —— 儲存與查詢日誌。
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.6.2
+    container_name: loki-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3100:3100"    # Alloy 往這寫入、Grafana 查詢。
+
+    # 使用 image 內建設定，採單體模式並將資料存到本機 volume。
+    volumes:
+      - "loki-data:/loki"
+
+    # 不設 healthcheck：image 沒有可用的 shell 或 wget；Alloy 會自行重試。
+    # 可從主機確認：http://localhost:3100/ready
+    extends:
+      file: common.yml
+      service: resource-limits
+
+
+  # ---------------------------------------------------------------------------
+  #  alloy —— 收集 Docker 日誌並送到 Loki。
+  # ---------------------------------------------------------------------------
+  alloy:
+    image: grafana/alloy:v1.12.0
+    container_name: alloy-ms
+    profiles: [ "observability" ]
+    ports:
+      - "12345:12345"    # Alloy 管理介面。
+
+    volumes:
+      # 將專案內的 Alloy 設定檔掛載到容器；容器只能讀取，不能修改主機檔案。
+      - "./observability-config/alloy/config.alloy:/etc/alloy/config.alloy:ro"
+      # 讀取所有 Docker container 的日誌；此 socket 幾乎等同 Docker 管理權限，正式環境應改用受限的 socket proxy。
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+    depends_on:
+      loki:
+        condition: service_started   # Loki 沒有 healthcheck。
+
+
+
+  # ---------------------------------------------------------------------------
   #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
   #
   #  🔑 account 同時接兩個 broker：
@@ -529,9 +582,9 @@ services:
   # ##                                                                       ##
   # ##   資料流：容器印 log → Docker 收著 → alloy 撈走 → loki 存 → grafana 看  ##
   # ##                                                                       ##
-  # ##   設定檔放在 observability/，一個資料夾一個角色：                        ##
-  # ##       observability/alloy/config.alloy                                ##
-  # ##       observability/grafana/datasource.yml                            ##
+  # ##   設定檔放在 observability-config/，一個資料夾一個角色：              ##
+  # ##       observability-config/alloy/config.alloy                          ##
+  # ##       observability-config/grafana/datasource.yml                      ##
   # ##   （loki 用 image 內建的預設設定，不需要設定檔）                         ##
   # ##                                                                       ##
   # ##   ⚠ 刻意「不用」Grafana 官方範例那份 7 容器的架構                       ##
@@ -546,67 +599,8 @@ services:
   # ###########################################################################
   # ###########################################################################
 
-  # ---------------------------------------------------------------------------
-  #  loki —— log 的儲存與查詢（「硬碟」）
-  # ---------------------------------------------------------------------------
-  loki:
-    image: grafana/loki:3.6.2
-    container_name: loki-ms
-    profiles: [ "observability" ]
-    ports:
-      - "3100:3100"    # alloy 往這裡推送，grafana 從這裡查詢
 
-    # ⚠ 不掛任何設定檔 —— image 內建的 /etc/loki/local-config.yaml 就是
-    #   「單體模式 + 存本機檔案」，正是本機開發要的。
-    #   官方範例那份 loki-config.yaml 綁死了 memberlist 和 MinIO，
-    #   少了那些容器會直接啟動失敗，所以刻意不用。
-    volumes:
-      - "loki-data:/loki"
 
-    # ⚠ 刻意「沒有 healthcheck」—— 這個 image 是 distroless：
-    #     沒有 sh、沒有 wget、沒有 curl，任何指令都跑不起來
-    #     Grafana 官方範例寫的 loki -health 在 3.6.2 已經被移除（flag not defined）
-    #   所以下面兩個服務用 service_started 而不是 service_healthy。
-    #   代價很小：alloy 推不進去會自己重試，grafana 查不到重整一下就好。
-    #   要確認它活著就從主機打：curl http://localhost:3100/ready → ready
-
-    extends:
-      file: common.yml
-      service: resource-limits
-
-  # ---------------------------------------------------------------------------
-  #  alloy —— log 收集代理（「攝影機」）
-  # ---------------------------------------------------------------------------
-  alloy:
-    image: grafana/alloy:v1.12.0
-    container_name: alloy-ms
-    profiles: [ "observability" ]
-    ports:
-      - "12345:12345"    # Alloy 自己的除錯畫面 http://localhost:12345
-
-    volumes:
-      # 設定檔（唯讀）
-      - "./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro"
-      # 🔑 關鍵的一行：把 Docker 的控制通道掛進去。
-      #    alloy 靠它直接問 Docker 要所有容器的 log，不需要跟那些容器同網路，
-      #    也不需要對方配合 —— 跟你打 docker logs 是同一個來源。
-      # ⚠ 代價：拿到這個等於對 Docker 有完全控制權（能建能刪任何容器）。
-      #   本機開發無所謂，正式環境要用受限的 socket proxy。
-      - "/var/run/docker.sock:/var/run/docker.sock"
-
-    command:
-      - run
-      - --server.http.listen-addr=0.0.0.0:12345
-      - --storage.path=/var/lib/alloy/data
-      - /etc/alloy/config.alloy
-
-    depends_on:
-      loki:
-        condition: service_started   # loki 沒有 healthcheck，見上方說明
-
-    extends:
-      file: common.yml
-      service: resource-limits
 
   # ---------------------------------------------------------------------------
   #  prometheus —— 指標的收集與儲存  http://localhost:9090
@@ -629,7 +623,7 @@ services:
 
     volumes:
       # 巡邏名單（去哪抓、多久抓一次）
-      - "./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "./observability-config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
       # 指標資料。不留的話容器重建就從零開始，歷史圖表全沒了。
       - "prometheus-data:/prometheus"
 
@@ -684,7 +678,7 @@ services:
     user: root
 
     volumes:
-      - "./observability/tempo/tempo.yml:/etc/tempo.yml:ro"
+      - "./observability-config/tempo/tempo.yml:/etc/tempo.yml:ro"
       - "tempo-data:/var/tempo"
 
     command: [ "-config.file=/etc/tempo.yml" ]
@@ -720,7 +714,7 @@ services:
     volumes:
       # 開機時自動掛好 Loki 資料源，不用手動在畫面上設定。
       # ⚠ 右邊的路徑不能改，Grafana 只掃這個資料夾。
-      - "./observability/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro"
+      - "./observability-config/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro"
       # 讓你在畫面上存的儀表板不會因為容器重建而消失
       - "grafana-data:/var/lib/grafana"
 

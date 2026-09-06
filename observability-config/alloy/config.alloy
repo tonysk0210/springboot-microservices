@@ -1,0 +1,35 @@
+// Alloy 日誌收集設定：讀取 Docker 日誌並送到 Loki。目前不會收集 IntelliJ 直接啟動的服務；那些服務不是 Docker container。
+// 語法是 Alloy 格式，不是 YAML。
+
+// ① 掃描 Docker containers，每 5 秒更新一次。
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "5s"
+}
+
+// ② 將容器名稱加入 container 標籤，供 Grafana 篩選。
+discovery.relabel "containers" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+// ③ 讀取容器日誌並轉送到 Loki。
+loki.source.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.containers.targets
+	forward_to       = [loki.write.default.receiver]
+	relabel_rules    = discovery.relabel.containers.rules
+	refresh_interval = "5s"
+}
+
+// ④ 將日誌送到 Compose 服務 loki。
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

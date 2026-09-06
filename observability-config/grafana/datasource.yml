@@ -1,0 +1,24 @@
+# Grafana 啟動時自動建立 Loki、Prometheus 與 Tempo 資料源。
+# Compose 需將此檔案掛到 Grafana 的 provisioning/datasources 目錄。
+apiVersion: 1
+
+datasources:
+  # 日誌資料源 Log
+  - name: Loki
+    type: loki
+    access: proxy          # 由 Grafana 後端連線 Loki。
+    # loki 是 Compose 服務名稱。
+    url: http://loki:3100
+    isDefault: true
+
+  # 指標資料源 Metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+
+  # 追蹤資料源 Traces
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200      # 查詢使用 3200；4318 是接收 span 的 port。

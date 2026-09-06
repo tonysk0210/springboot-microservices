@@ -29,8 +29,8 @@ spring:
             # 送出請求到收到完整回應的最長時間；超時會觸發 Circuit Breaker 測試情境。
             response-timeout: 7s
 
-  # Redis 儲存 Gateway RequestRateLimiter 的共用計數，讓多個 Gateway instance 使用同一份限流狀態；容器由 Compose 將主機覆寫為 redis。
-  # Redis 未啟動時 Gateway 仍可能正常啟動，但所有經過限流的請求都會連線失敗；Redis 恢復後，後續請求才會恢復正常限流。
+  # Redis 儲存 RequestRateLimiter 計數，讓多個 Gateway instance 共用限流額度；容器由 Compose 使用 redis 主機名。
+  # Redis 未啟動時 Gateway 可能仍能啟動，但限流請求會失敗；Redis 恢復後才會正常限流。
   data:
     redis:
       host: localhost
@@ -176,12 +176,8 @@ resilience4j.circuitbreaker:
 # 測試 Gateway Circuit Breaker：在 AccountConfigController#getContactInfo() 設 breakpoint，
 # 透過 /bank/account/api/contact-info 呼叫 Gateway，讓每次請求停住超過 Gateway 逾時； 5 次中有 3 次失敗（失敗率 60%）後，accountCircuitBreaker 會變成 OPEN，請求改走 /contactSupport。
 
-
-# 斷路器包住的整段處理的總時限（含查 Eureka、挑實例、其他 filter），最外層兜底用。
-# ⚠ 不寫預設只有 1 秒，第一次呼叫很容易破 → Postman 幾乎立刻跳 fallback。
-#   改這個 1 秒只能靠這棵樹，把 httpclient 的 response-timeout 調大沒有用。
-# 🔑 要比上面 httpclient 的 7s 大。反過來的話錯誤都變成籠統的 TimeoutException，
-#    分不出是「連不上」還是「回得慢」。
+# Circuit Breaker 整段處理的總時限，需大於 Gateway 的 7 秒 HTTP timeout。
+# 預設只有 1 秒；超時會觸發 TimeLimiter 與 fallback。
 resilience4j.timelimiter:
   configs:
     default:

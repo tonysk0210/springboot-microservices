@@ -1,6 +1,6 @@
 # =============================================================================
 #  測試 Account 內部的 @RateLimiter。
-#  用途：快速連續呼叫 API，觀察方法執行時回 500、超過額度時回 429。
+#  用途：快速連續呼叫 API，觀察請求通過時回 200、超過額度時回 429。
 #  限流設定每 5 秒放行 1 次，不分使用者，額度存在每個 instance 的記憶體。
 #
 #  用法：
@@ -42,9 +42,8 @@ Write-Host "`n"
 # 顯示各 HTTP 狀態碼的次數與意義。
 $codes | Group-Object | Sort-Object Name | ForEach-Object {
     $label = switch -Regex ($_.Name) {
-        '^2'   { "成功" }
+        '^2'   { "方法執行並成功回應" }
         '^429' { "被限流擋下（方法沒執行，走 fallback）" }
-        '^500' { "額度還有 → 方法執行了 → 它自己 throw 例外" }
         '^000' { "連不上（account 沒開？）" }
         default { "其他" }
     }
@@ -52,7 +51,6 @@ $codes | Group-Object | Sort-Object Name | ForEach-Object {
 }
 
 Write-Host ""
-Write-Host "🔑 500 和 429 的差別就是「有沒有進到方法裡」——" -ForegroundColor DarkGray
-Write-Host "   這也是 fallback 該回 429 而不是 200 的理由：一眼分得出是被限流還是方法爛掉。" -ForegroundColor DarkGray
+Write-Host "🔑 200 表示方法有執行；429 表示額度用完，直接走 fallback。" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "⏳ 等 5 秒後額度重置，再跑一次第一個又會是 500。" -ForegroundColor DarkGray
+Write-Host "⏳ 等 5 秒後額度重置，再跑一次第一個又會是 200。" -ForegroundColor DarkGray
