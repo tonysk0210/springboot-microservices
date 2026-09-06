@@ -88,27 +88,12 @@ management:
     shutdown:
       access: unrestricted
 
-  # access 是 Spring Boot 3.4 起取代舊 enabled: true 的三段式層級：
-  #     none          端點不存在（連 bean 都不會建）
-  #     read-only     只能 GET
-  #     unrestricted  POST / DELETE 也放行  ← shutdown 是 POST，非它不可
-  #
-  # 🔑 全部端點裡只有 shutdown 和 heapdump 預設關閉（官方文件明列的兩個例外）——
-  #    一個能關掉服務，一個能把整包記憶體 dump 出來。
-  #
-  # 🔑 為什麼微服務特別需要它：優雅關閉會「主動通知 Eureka 註銷」，儀表板上馬上消失。
-  #    直接按 IDE 停止鈕或 kill -9 的話，要等心跳超時（90 秒）再加上驅逐排程
-  #    （每 60 秒掃一次）—— 中間那幾分鐘，別的服務還是會把請求送到已經死掉的實例上。
-  #    這就是「優雅關閉」在微服務裡的真正價值：不是為了資料完整性，是為了不讓流量打到墓碑。
-  #
-  # ⚠ 這是「沒有驗證的 POST，任何人打了服務就掛掉」。正式環境要用 Spring Security
-  #   保護或直接關掉（上面的 env 端點會印出所有設定值，性質相同）。
-  # ⚠ 容器裡打了它 → 應用程式退出 → 容器變 Exited(0)。compose 目前沒設 restart: 政策，
-  #   所以要手動 docker compose up -d 才會回來。
-  #
-  # 用法：Invoke-RestMethod http://localhost:8090/actuator/shutdown -Method Post
-  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
-  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+    # 顯示各 HealthIndicator 的詳細狀態，可單獨查詢 /actuator/health/db。
+    # ⚠ details 可能暴露資料庫、RabbitMQ、磁碟等內部資訊；正式環境建議使用 never 或 when-authorized，折衷可用 show-components: always。
+    health:
+      show-details: always
+
+  # 為指標加上服務名稱，方便 Prometheus／Grafana 區分不同服務。
   metrics:
     tags:
       application: ${spring.application.name}
@@ -153,17 +138,7 @@ management:
 
 
 
-    # /actuator/health 預設只回 {"status":"UP"}，出事時完全不知道是哪一項壞了。
-    # 開了之後會列出每個 HealthIndicator（db / rabbit / diskSpace / discoveryComposite…），
-    # 壞掉的那一項會多一個 details.error 直接指出原因。
-    # 還能只查單項：/actuator/health/db、/actuator/health/discoveryComposite
-    #
-    # ⚠ 只適合開發環境 —— details 裡有 GitHub repo 網址、本機絕對路徑、磁碟容量、
-    #   RabbitMQ 版本等內部資訊，而這個端點是「沒有驗證就能打」的。
-    #   正式環境改成 never（預設）或 when-authorized（需搭配 Spring Security）；
-    #   折衷可用 show-components: always —— 看得到「是 rabbit 壞了」但不含 details。
-    health:
-      show-details: always
+
 
     # /actuator/env 預設把所有值遮成 ******（Spring Boot 3.0 起）。開了才看得到
     # 實際值，以及「被覆蓋掉的那一層」—— 完整說明見 account 的 application.yaml。

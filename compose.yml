@@ -345,6 +345,17 @@ services:
     volumes:
       - "loki-data:/loki"
 
+    # 提高 Alloy 推送日誌批次的大小上限，避免較大的 log batch 被 Loki 拒絕。
+    command:
+      # 使用 Loki image 內建的本機單體模式設定檔。
+      - "-config.file=/etc/loki/local-config.yaml"
+      # 限制每次接收的 gRPC 訊息大小為 16 MiB。
+      - "-distributor.max-recv-msg-size=16777216"
+      # 將 Loki gRPC 伺服器接收上限設為 16 MiB，與 distributor 一致。
+      - "-server.grpc-max-recv-msg-size-bytes=16777216"
+      # 允許接收 168 小時（7 天）內的舊日誌，避免 Alloy 重播 Docker 日誌時被拒絕。
+      - "-validation.reject-old-samples.max-age=168h"
+
     # 不設 healthcheck：image 沒有可用的 shell 或 wget；Alloy 會自行重試。
     # 可從主機確認：http://localhost:3100/ready
     extends:
@@ -382,6 +393,120 @@ services:
       loki:
         condition: service_started   # Loki 沒有 healthcheck。
 
+  # ---------------------------------------------------------------------------
+  #  prometheus —— 收集並儲存各服務指標  http://localhost:9090
+  #  每 15 秒主動抓取 /actuator/prometheus；狀態可在 /targets 查看。
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.8.0
+    container_name: prometheus-ms
+    profiles: [ "observability" ]
+    ports:
+      - "9090:9090"
+
+    volumes:
+      # Prometheus 抓取目標與頻率設定。
+      - "./observability-config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      # 保存歷史指標；移除後重建會從零開始。
+      - "prometheus-data:/prometheus"
+
+    # 使用自訂設定檔時，需明確指定設定檔與資料目錄。
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle          # 允許 POST /-/reload 熱載入設定。
+
+    # 讓容器可解析 host.docker.internal；Linux Docker Engine 需要這項設定。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # 以 Prometheus 健康端點確認服務是否正常。
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  grafana —— 顯示 Loki、Prometheus、Tempo 資料  http://localhost:3000
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:12.3.0
+    container_name: grafana-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3000:3000"
+
+    environment:
+      # 開發環境免登入並使用管理員權限；正式環境請關閉。
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+
+    volumes:
+      # 啟動時自動建立資料源，不必手動設定。
+      - "./observability-config/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro"
+      # 保存儀表板與 Grafana 設定，避免容器重建後遺失。
+      - "grafana-data:/var/lib/grafana"
+
+    depends_on:
+      loki:
+        condition: service_started   # Loki 沒有 healthcheck。
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+
+    # 由 Docker 定期檢查 Grafana 是否正常。
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    extends:
+      file: common.yml
+      service: resource-limits
+
+  # ---------------------------------------------------------------------------
+  #  tempo —— 儲存與查詢 OpenTelemetry trace  http://localhost:3200
+  #  服務透過 OTLP 主動送 span；Grafana 從 Tempo 查詢瀑布圖。
+  # ---------------------------------------------------------------------------
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: tempo-ms
+    profiles: [ "observability" ]
+    ports:
+      - "3200:3200"    # Grafana 查詢用。
+      - "4318:4318"    # OTLP／HTTP，服務送 span 用。
+      - "4317:4317"    # OTLP／gRPC，預留使用。
+
+    # 以 root 執行，確保能寫入 tempo-data volume。
+    user: root
+
+    volumes:
+      - "./observability-config/tempo/tempo.yml:/etc/tempo.yml:ro"
+      - "tempo-data:/var/tempo"
+
+    command: [ "-config.file=/etc/tempo.yml" ]
+
+    # 以 /ready 端點確認 Tempo 是否就緒。
+    healthcheck:
+      test: [ "CMD", "/busybox/wget", "-qO-", "http://127.0.0.1:3200/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    extends:
+      file: common.yml
+      service: resource-limits
 
 
   # ---------------------------------------------------------------------------
@@ -600,143 +725,6 @@ services:
   # ###########################################################################
 
 
-
-
-  # ---------------------------------------------------------------------------
-  #  prometheus —— 指標的收集與儲存  http://localhost:9090
-  #
-  #  🔑 跟 loki 的方向相反：
-  #      loki       被動等 alloy 推進來
-  #      prometheus 主動每 15 秒去打六個服務的 /actuator/prometheus
-  #
-  #  ⚠ 所以它「必須」跟微服務在同一個網路 —— 這就是把觀測性合併進本檔案
-  #    而不是放另一份 compose 的主要理由。log 反而不需要。
-  #
-  #  查抓取狀態：http://localhost:9090/targets （每個服務是 UP 還是 DOWN）
-  # ---------------------------------------------------------------------------
-  prometheus:
-    image: prom/prometheus:v3.8.0
-    container_name: prometheus-ms
-    profiles: [ "observability" ]
-    ports:
-      - "9090:9090"    # ⚠ 跟 card 的 9000 不同，不會撞
-
-    volumes:
-      # 巡邏名單（去哪抓、多久抓一次）
-      - "./observability-config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
-      # 指標資料。不留的話容器重建就從零開始，歷史圖表全沒了。
-      - "prometheus-data:/prometheus"
-
-    # ⚠ 掛了自訂設定檔就必須把 command 整組寫出來 ——
-    #   image 內建的 CMD 會被覆蓋，少寫 --storage.tsdb.path 那行資料就不會寫進 volume。
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --web.enable-lifecycle          # 允許 POST /-/reload 熱載入設定，不用重啟
-
-    # prometheus.yml 的 targets 用 host.docker.internal（原因見那個檔案的說明）。
-    # ⚠ 那個名字在 Docker Desktop（Windows / Mac）是內建的，這行是多餘的；
-    #   但在 Linux 的 Docker Engine 沒有內建，少了它全部 target 會 DOWN。
-    #   加著不會衝突，換到 Linux 環境時省下一次「為什麼壞掉」的查修。
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-    # Prometheus 內建健康端點；使用 image 內的 wget 定期檢查。
-    healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-    extends:
-      file: common.yml
-      service: resource-limits
-
-  # ---------------------------------------------------------------------------
-  #  tempo —— 追蹤（trace）的儲存與查詢  http://localhost:3200
-  #
-  #  🔑 三支柱的收集方向，這是第三種：
-  #      Log      alloy 去 Docker 撈        → 服務不知情
-  #      Metrics  Prometheus 來抓           → 服務被動
-  #      Traces   服務「主動送」過來         → 服務要知道 Tempo 在哪
-  #
-  #  ⚠ 所以四個服務的 yaml 都設了 OTLP endpoint。少設一個，那個服務的 span
-  #    就不會出現，瀑布圖會缺一段 —— 而且不會有任何錯誤訊息。
-  # ---------------------------------------------------------------------------
-  tempo:
-    image: grafana/tempo:2.9.0
-    container_name: tempo-ms
-    profiles: [ "observability" ]
-    ports:
-      - "3200:3200"    # 查詢（Grafana 資料源指這裡）
-      - "4318:4318"    # OTLP / HTTP  ← 服務送 span 用這個
-      - "4317:4317"    # OTLP / gRPC（本專案用不到，開著備用）
-
-    # ⚠ 要 root —— Tempo 的 image 用非 root 跑，但 volume 掛上來時目錄是
-    #   root:root 755，寫不進去會直接啟動失敗。跟 account 的 H2 同一個問題。
-    user: root
-
-    volumes:
-      - "./observability-config/tempo/tempo.yml:/etc/tempo.yml:ro"
-      - "tempo-data:/var/tempo"
-
-    command: [ "-config.file=/etc/tempo.yml" ]
-
-    # Tempo 內建 busybox wget，可用 /ready 確認服務已就緒。
-    healthcheck:
-      test: [ "CMD", "/busybox/wget", "-qO-", "http://127.0.0.1:3200/ready" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-    extends:
-      file: common.yml
-      service: resource-limits
-
-  # ---------------------------------------------------------------------------
-  #  grafana —— 查詢畫面（「螢幕」）  http://localhost:3000
-  # ---------------------------------------------------------------------------
-  grafana:
-    image: grafana/grafana:12.3.0
-    container_name: grafana-ms
-    profiles: [ "observability" ]
-    ports:
-      - "3000:3000"
-
-    environment:
-      # 免登入，直接進去就是管理員。⚠ 只適合本機。
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
-      GF_AUTH_DISABLE_LOGIN_FORM: "true"
-
-    volumes:
-      # 開機時自動掛好 Loki 資料源，不用手動在畫面上設定。
-      # ⚠ 右邊的路徑不能改，Grafana 只掃這個資料夾。
-      - "./observability-config/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro"
-      # 讓你在畫面上存的儀表板不會因為容器重建而消失
-      - "grafana-data:/var/lib/grafana"
-
-    depends_on:
-      loki:
-        condition: service_started   # loki 沒有 healthcheck，見上方說明
-      prometheus:
-        condition: service_started
-      tempo:
-        condition: service_started
-
-    # Grafana 提供健康 API；image 內建 wget，可由 Docker 自動檢查。
-    healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-    extends:
-      file: common.yml
-      service: resource-limits
 
 
 # =============================================================================

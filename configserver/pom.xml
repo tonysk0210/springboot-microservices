@@ -35,7 +35,8 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- 提供 Config Server API、Git／native 設定來源，以及加密與 {cipher} 解密。主類別仍需加上 @EnableConfigServer。 -->
+        <!-- ============================== CONFIG SERVER ============================== -->
+        <!-- 提供 Config Server API、Git／native 設定來源與 {cipher} 解密。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-server</artifactId>
@@ -54,12 +55,14 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-config-monitor</artifactId>
         </dependency>
-        <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
-             Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
+        <!-- ============================ END CONFIG SERVER ============================ -->
+
+        <!-- =============================== OBSERVABILITY ============================== -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- =========================== END OBSERVABILITY ============================= -->
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

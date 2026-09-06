@@ -73,6 +73,8 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.1.0</version>
         </dependency>
+        <!-- ============================== CONFIG SERVER ============================== -->
+        <!-- 啟動時取得遠端設定，並支援透過 Bus 廣播刷新。 -->
         <!-- Config Client：啟動時向 Config Server 取得 loan 設定。
         必須搭配 spring.config.import；加上 optional: 可在 Config Server 暫時無法連線時仍讓服務啟動。 -->
         <dependency>
@@ -85,6 +87,10 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-bus-amqp</artifactId>
         </dependency>
+        <!-- ============================ END CONFIG SERVER ============================ -->
+
+        <!-- =============================== EUREKA SERVER =============================== -->
+        <!-- 註冊 Loan，讓其他服務可以透過 Eureka 找到它。 -->
         <!-- Eureka Client：啟動時註冊自己，並定期快取服務清單。
              需設定 eureka.client.service-url.defaultZone；服務名稱由
              Spring Cloud LoadBalancer 解析成可用實例，不需額外加啟用註解。 -->
@@ -92,21 +98,24 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
-        <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
-             Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
+        <!-- ============================ END EUREKA SERVER ============================= -->
+
+        <!-- =============================== GATEWAY SERVER ============================== -->
+        <!-- Loan 不直接依賴 Gateway；Gateway 透過 HTTP 路由呼叫本服務。 -->
+        <!-- =========================== END GATEWAY SERVER ============================ -->
+
+        <!-- =============================== OBSERVABILITY ============================== -->
+        <!-- 以下依賴負責 Prometheus 指標與分散式追蹤。 -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
-
-        <!-- OpenTelemetry —— 分散式追蹤（Trace）。
-             一個依賴帶進 micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp，
-             Java 程式碼零改動：HTTP 進出、Feign 呼叫、DB 查詢由框架自動埋點。
-             ⚠ 還要 Tempo 容器接收 span，不然只是不斷嘗試送出然後失敗。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
+        <!-- =========================== END OBSERVABILITY ============================= -->
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator-test</artifactId>

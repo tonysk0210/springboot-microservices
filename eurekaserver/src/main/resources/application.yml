@@ -27,8 +27,8 @@ management:
         # metrics 可查看單項監控指標。
         include: health,info,prometheus,metrics
 
+  # 為指標加上服務名稱，方便 Prometheus／Grafana 區分不同服務。
   metrics:
-    # 讓監控系統區分不同服務的指標。
     tags:
       application: ${spring.application.name}
 

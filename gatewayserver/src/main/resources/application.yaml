@@ -99,9 +99,9 @@ management:
     # 允許 POST http://localhost:8072/actuator/shutdown 優雅關閉並註銷 Eureka；正式環境應保護或關閉此未驗證端點。
     shutdown:
       access: unrestricted
-    
+
+    # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
     health:
-      # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
       show-details: always
 
     # 可用 GET /actuator/gateway/routes 查看目前路由，不能新增或刪除。
@@ -117,8 +117,7 @@ management:
     circuitbreakers:
       enabled: true
 
-  # 每一筆指標都貼上服務名，Grafana 裡才分得出是誰的。
-  # ⚠ 不加的話四個服務的 jvm_memory_used_bytes 全混在一起，圖表毫無意義。
+  # 為指標加上服務名稱，方便 Prometheus／Grafana 區分不同服務。
   metrics:
     tags:
       application: ${spring.application.name}

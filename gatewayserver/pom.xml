@@ -45,8 +45,8 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- API Gateway 的 WebFlux 版本：非阻塞地把請求轉送到其他服務，
-     等待下游回應時不佔住 Gateway 執行緒。 -->
+        <!-- =============================== GATEWAY SERVER ============================== -->
+        <!-- API Gateway 的 WebFlux 版本：負責接收請求並轉送到下游服務。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
@@ -68,21 +68,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
         </dependency>
-        <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
-             Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
+        <!-- ============================ END GATEWAY SERVER ============================ -->
+
+        <!-- =============================== OBSERVABILITY ============================== -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
-
-        <!-- OpenTelemetry —— 分散式追蹤（Trace）。
-             一個依賴帶進 micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp，
-             Java 程式碼零改動：HTTP 進出、Feign 呼叫、DB 查詢由框架自動埋點。
-             ⚠ 還要 Tempo 容器接收 span，不然只是不斷嘗試送出然後失敗。 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-opentelemetry</artifactId>
         </dependency>
+        <!-- =========================== END OBSERVABILITY ============================= -->
+
         <!-- ── OAuth2 Resource Server（三個一組，缺一不可）───────────────────
              Gateway 在 OAuth2 裡的角色是「資源伺服器」：只負責「驗」token，
              發 token 是 Keycloak 的事。

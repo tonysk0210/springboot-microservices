@@ -58,7 +58,17 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus,metrics
+
+  endpoint:
+    # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
+    health:
+      show-details: always
+
+  # 為指標加上服務名稱，方便 Prometheus／Grafana 區分不同服務。
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
   # ── OpenTelemetry 追蹤 ────────────────────────────────────────────────────
   # 🔑 對本服務特別重要：它沒有 HTTP 請求可以掛 correlation-id

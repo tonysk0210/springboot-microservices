@@ -35,6 +35,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- =============================== EUREKA SERVER =============================== -->
         <!-- Eureka Server：提供服務註冊、查詢 API 與管理儀表板。
              必須搭配 @EnableEurekaServer 才會啟用 Server 功能。
              本專案只啟動單一 Server，因此 application.yml 關閉
@@ -44,12 +45,14 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
         </dependency>
-        <!-- Micrometer 的 Prometheus registry：將 JVM、HTTP 與應用程式指標轉成
-             Prometheus 可抓取的格式；另需在 Actuator exposure 中開放 prometheus 端點。 -->
+        <!-- ============================ END EUREKA SERVER ============================= -->
+
+        <!-- =============================== OBSERVABILITY ============================== -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- =========================== END OBSERVABILITY ============================= -->
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
