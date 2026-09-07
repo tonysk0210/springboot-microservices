@@ -508,6 +508,38 @@ services:
       file: common.yml
       service: resource-limits
 
+  # ---------------------------------------------------------------------------
+  #  keycloak —— OAuth2 授權伺服器，負責登入、角色與 JWT token。
+  #  不設 profile，啟動 Compose 時一併啟動；管理介面：http://localhost:7080。
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.1
+    container_name: keycloak-ms
+    ports:
+      # 主機使用 7080，容器內使用 8080；其他容器請連 keycloak:8080。
+      # 綁定 127.0.0.1，只允許本機存取；若只寫 7080:8080，Docker 一般未指定 ip 通常會綁定 0.0.0.0，管理介面可能暴露給區域網路。
+      - "127.0.0.1:7080:8080"
+
+    # 開發模式：使用內建 H2、不要求 HTTPS；正式環境應改用外部資料庫與正式模式。
+    command: [ "start-dev" ]
+
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+
+      # 設定 JWT 的 issuer 位址；改用 issuer-uri 時會檢查此值。
+      KC_HOSTNAME: http://localhost:7080
+
+    volumes:
+      # 保存 realm、client、role、user 與 H2 資料，重建容器後仍可保留。
+      - "keycloak-data:/opt/keycloak/data"
+
+    # 不設 healthcheck；目前沒有服務以 depends_on 等待 Keycloak。
+
+    # 不是 Spring 服務，只要記憶體上限那一層
+    extends:
+      file: common.yml
+      service: resource-limits
 
   # ---------------------------------------------------------------------------
   #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
@@ -636,58 +668,7 @@ services:
 
 
 
-  # ---------------------------------------------------------------------------
-  #  keycloak —— 授權伺服器（發 token 的那一方）
-  #
-  #  🔑 刻意「不」設 profile —— 跟著 docker compose up -d 一起啟動。
-  #     因為 gatewayserver 寫死了 SPRING_PROFILES_ACTIVE: auth，沒有它就沒人發 token，
-  #     所有請求都會 401。兩者是綁在一起的，分開只會製造「只開一半」的坑。
-  #
-  #  管理介面 http://localhost:7080 （admin / admin，可用 .env 覆寫）
-  #
-  #  🔑 角色分工：Keycloak 只管「你是誰、有哪些角色」，不知道有哪些 API；
-  #     「這個角色能不能打這支 API」是 gatewayserver 的 SecurityConfig 決定的。
-  # ---------------------------------------------------------------------------
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.7.1
-    container_name: keycloak-ms
-    ports:
-      # 左邊 7080 是主機端（8080 被 account 佔了），右邊 8080 是容器內的固定埠。
-      # ⚠ 容器之間互連要用 keycloak:8080，不是 localhost:7080。
-      #
-      # ⚠⚠ 前面的 127.0.0.1 不能省 —— 沒寫的話 Docker 綁 0.0.0.0，
-      #     同一個 WiFi / 網段的任何人都連得到這台的 Keycloak 管理介面，
-      #     而帳密是 admin/admin。其他容器不受影響（走的是內部網路，不經過這層映射）。
-      - "127.0.0.1:7080:8080"
 
-    # start-dev = 開發模式：內建 H2、不要求 HTTPS、關掉快取。
-    # ⚠ 正式環境要用 start 並接外部資料庫，start-dev 的資料庫不保證可升級。
-    command: [ "start-dev" ]
-
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-
-      # token 裡的 iss（發行者）固定成這個位址。
-      # ⚠ 目前 gateway 用 jwk-set-uri 驗證，「不會」檢查 iss，所以少了這行也能通。
-      #   但哪天改用 issuer-uri（那會連 iss 一起驗），「用 localhost:7080 拿 token、
-      #   gateway 用 keycloak:8080 驗」就會變成 invalid_token。先設好，到時不用回頭補。
-      KC_HOSTNAME: http://localhost:7080
-
-    volumes:
-      # ⚠⚠ 這行很重要 —— 先前手動 docker run 的容器「沒有」掛 volume，
-      #     realm、client（含 secret）、role、user 全存在容器層，docker rm 就全沒了。
-      #     start-dev 用的 H2 檔案就在 /opt/keycloak/data 底下。
-      - "keycloak-data:/opt/keycloak/data"
-
-    # 刻意不設 healthcheck：Keycloak 26 的健康檢查在另一個管理埠（9000），
-    # 而 image 裡沒有 curl / wget，寫起來要繞一大圈。沒有別的容器 depends_on 它，
-    # 少這一項不影響啟動順序（同 loki 的做法）。
-
-    # 不是 Spring 服務，只要記憶體上限那一層
-    extends:
-      file: common.yml
-      service: resource-limits
 
 
   # ###########################################################################
