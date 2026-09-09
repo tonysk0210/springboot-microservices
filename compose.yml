@@ -1,44 +1,20 @@
 # =============================================================================
-#  十一個容器的編排：改成一行 docker compose up -d
+# Compose 服務編排：
+#   開發環境：`docker compose up -d`
+#   開發環境 + 觀測性：`docker compose --profile observability up -d`
+#   正式環境：`docker compose -f compose.yml -f compose.prod.yml up -d`
+#   正式環境 + 觀測性：`docker compose -f compose.yml -f compose.prod.yml --profile observability up -d`
 #
-#    rabbitmq      訊息中介。兩種用途：Bus 廣播設定刷新 + account↔messageservice 的通知
-#    mysql         account / loan / card 共用的資料庫（一個容器、三個 database）
-#    configserver  設定中心，account / loan / card 向它拿設定
-#    eurekaserver  服務註冊中心，四個服務在此登記、互相查找
-#    account / loan / card
-#    messageservice 事件驅動的通知服務（只收發訊息，沒有 HTTP API）
-#    redis         Gateway 限流的計數器
-#    keycloak      授權伺服器，發 token
-#    gatewayserver 對外單一入口（8072），路由到三個服務
+# `compose.prod.yml` 是正式環境覆寫檔；觀測性服務需額外啟用 profile。
+# 核心服務包含業務服務、RabbitMQ、Kafka、MySQL、Redis、Eureka、Config Server、Gateway、Keycloak 與 MessageService；共用設定由 common.yml 提供。
 #
-#  啟動順序（rabbitmq → configserver → eurekaserver → account / loan / card）
-#  由 depends_on + healthcheck 保證。
-#  ⚠ 最後四個是「平行啟動」的，gatewayserver 不等三個服務 —— 原因見它自己那段。
-#  共用設定（JVM 參數、環境變數、記憶體上限、depends_on）抽在 common.yml，用 extends 繼承。
+# 觀測性服務 Loki、Alloy、Prometheus、Tempo、Grafana 預設不啟動，需加上：
+# `docker compose --profile observability up -d`。
 #
-#  ── 「預設不啟動」的一組，用 profile 開關 ──────────────────────────────────
-#    --profile observability  loki / alloy / prometheus / tempo / grafana
+# 容器環境固定啟用 Gateway OAuth2 驗證，呼叫 API 必須攜帶 Keycloak token。
+# 本機若要測試未驗證模式，直接用 IntelliJ 啟動 Gateway；需要驗證時再啟用 auth profile。
 #
-#  ── 🔑 容器環境「一律開啟 OAuth2 驗證」，沒有開關 ──────────────────────────
-#    keycloak 跟著 up 一起啟動，gatewayserver 寫死 SPRING_PROFILES_ACTIVE: auth。
-#    也就是說打 API 一定要帶 token。
-#
-#    想在「不驗證」的狀態下測業務邏輯，用 IntelliJ 跑 gatewayserver ——
-#    它預設就是不驗證的（要驗證才在 Run Configuration 填 Active profiles: auth）。
-#
-#    ⚠ 曾經試過用 --profile auth 同時控制「起 keycloak」和「gateway 驗不驗」，
-#      但 Compose 的 profile 只能決定「服務要不要建立」，沒有語法可以條件式地
-#      去改另一個服務的環境變數。硬拆成兩個開關的結果是很容易只開一半 ——
-#      keycloak 起來了、gateway 卻沒驗證，而且沒有任何錯誤訊息。
-#      所以改成「容器 = 完整環境、IntelliJ = 開發環境」，兩邊各自只有一種行為。
-#
-#  ⚠ 執行前專案根目錄要有 .env（裡面要有 ENCRYPT_KEY），沒有的話 compose 會直接失敗。
-#
-#  ⚠ 本檔案必須放在專案根目錄：Compose 拿「所在資料夾名」當專案名稱，所有資源都用它
-#    當前綴（網路 springboot-microservices_default），.env 也是從這裡找。
-#
-#  ⚠ 檔名別同時放兩份。搜尋順序 compose.yaml → compose.yml → docker-compose.yaml
-#    → docker-compose.yml，找到第一個就停，另一個會被「安靜地」忽略。
+# 執行前請確認專案根目錄有 `.env`（包含 ENCRYPT_KEY），且本檔案位於專案根目錄。
 # =============================================================================
 
 
@@ -559,7 +535,7 @@ services:
 
     environment:
       # KRaft 單節點：同時扮演 broker 與 controller。
-      KAFKA_NODE_ID: 1 
+      KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
@@ -634,30 +610,23 @@ services:
         condition: service_healthy
 
 # =============================================================================
-#  named volume 宣告
-#
-#  ⚠ 這一段跟 services: 同一層（最外層，不縮排）。
-#    上面服務寫了 "mysql-data:/var/lib/mysql" 卻沒在這裡宣告的話，compose 直接拒絕：
-#        service "mysql" refers to undefined volume mysql-data
-#
-#  冒號後面留空 = 用預設設定（driver: local），位置交給 Docker 決定。
-#  compose 會自動加上專案名前綴，實際名稱是 springboot-microservices_mysql-data。
+# Named volumes：保存服務資料，避免容器重建後遺失。
+# 與 services 同層；未指定 driver 時使用 Docker 預設的 local volume。
 # =============================================================================
 volumes:
-  mysql-data:        # account / loan / card 三個 database 都在這一塊裡
-  kafka-data:        # topic 的訊息本體 + 各 group 的 offset
+  mysql-data:        # account、loan、card 共用的資料庫資料
+  kafka-data:        # Kafka topic 訊息與 consumer offset
   rabbitmq-data:
-  keycloak-data:     # realm / client / role / user —— 沒有它，容器一重建設定就全沒
-  # ── 觀測性用（只有 --profile observability 時才會建立）──────────────────────
-  loki-data:         # log 本體，不留的話容器重建就全沒了
-  prometheus-data:   # 指標的歷史資料
-  tempo-data:        # 追蹤資料（tempo.yml 設保留 24h）
-  grafana-data:      # 你在畫面上存的儀表板
+  keycloak-data:     # Keycloak realm、client、role 與 user
+  # 觀測性服務使用；啟用 observability profile 時才建立。
+  loki-data:         # Loki logs
+  prometheus-data:   # Prometheus metrics 歷史資料
+  tempo-data:        # Tempo traces
+  grafana-data:      # Grafana dashboards 與設定
 
 
 # =============================================================================
-#  明確指定 Compose 使用的預設 network；所有 services 會自動加入。
-#  同一 network 內可透過 service name（例如 account、mysql）互相呼叫。
+# 預設 network：所有 services 自動加入，可用 service name 互相呼叫。
 # =============================================================================
 networks:
   default:
