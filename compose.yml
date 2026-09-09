@@ -134,6 +134,10 @@ services:
   rabbitmq:
     image: rabbitmq:4-management
     container_name: rabbitmq-ms
+    environment:
+      # RabbitMQ 初始管理帳密由根目錄 .env 注入。
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:?請在 .env 設定 RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?請在 .env 設定 RABBITMQ_PASSWORD}
     ports:
       - "5672:5672"      # AMQP，服務連線用
       - "15672:15672"    # 管理介面 http://localhost:15672 （guest/guest）
@@ -516,8 +520,8 @@ services:
     command: [ "start-dev" ]
 
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?請在 .env 設定 KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?請在 .env 設定 KEYCLOAK_ADMIN_PASSWORD}
 
       # 設定 JWT 的 issuer 位址；改用 issuer-uri 時會檢查此值。
       KC_HOSTNAME: http://localhost:7080

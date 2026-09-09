@@ -42,8 +42,8 @@ spring:
   rabbitmq:
     host: localhost
     port: 5672
-    username: guest
-    password: guest
+      username: ${SPRING_RABBITMQ_USERNAME:guest}
+      password: ${SPRING_RABBITMQ_PASSWORD:guest}
 
 # Eureka Client：向 Eureka 註冊自己，並快取其他服務的清單。
 # 需要 pom.xml 的 spring-cloud-starter-netflix-eureka-client。
