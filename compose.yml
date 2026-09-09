@@ -15,6 +15,22 @@
 # 本機若要測試未驗證模式，直接用 IntelliJ 啟動 Gateway；需要驗證時再啟用 auth profile。
 #
 # 執行前請確認專案根目錄有 `.env`（包含 ENCRYPT_KEY），且本檔案位於專案根目錄。
+#
+# 個別建置七個自建服務 image（PowerShell）：
+# Account 使用專案內的 Dockerfile（會在 image 內編譯並打包）：
+# `docker build -t anthonysk/account:0.0.1-SNAPSHOT .\account`
+# Loan 使用 Spring Boot Buildpacks：
+# 只建立本機 image：
+# `cd loan; .\mvnw.cmd spring-boot:build-image "-Dmaven.test.skip=true"`
+# 建立後直接推送 Docker Hub：
+# `cd loan; .\mvnw.cmd spring-boot:build-image "-Dmaven.test.skip=true" "-Dspring-boot.build-image.publish=true"`
+# Card、Config Server、Eureka Server、Gateway、MessageService 使用 Jib：
+# `cd card; .\mvnw.cmd compile jib:dockerBuild`
+# `cd configserver; .\mvnw.cmd compile jib:dockerBuild`
+# `cd eurekaserver; .\mvnw.cmd compile jib:dockerBuild`
+# `cd gatewayserver; .\mvnw.cmd compile jib:dockerBuild`
+# `cd messageservice; .\mvnw.cmd compile jib:dockerBuild`
+# 建置後可用 `docker compose up -d --force-recreate <service>` 更新單一容器。
 # =============================================================================
 
 
