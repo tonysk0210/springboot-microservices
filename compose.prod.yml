@@ -1,12 +1,14 @@
-# 正式環境覆寫檔：只保留 Gateway 對外提供服務。
+# 正式環境覆寫檔：業務 API 只允許透過 Gateway 對外提供服務。
 # 使用：docker compose -f compose.yml -f compose.prod.yml up -d
 # 開發環境仍可直接使用：docker compose up -d
 #
-# 移除業務服務的主機 port，避免繞過 Gateway 的 OAuth2 驗證。
+# 移除 account、loan、card 的主機 port，避免繞過 Gateway 的 OAuth2 驗證。
 # 容器之間仍可透過 account:8080、loan:8090、card:9000 互相呼叫。
 # !reset 用來清空基底 compose 的 ports（需 Docker Compose v2.24+）。
 #
-# 代價：主機無法直接開啟各服務的 Swagger，需改用 Gateway 或開發設定存取。
+# 代價：主機無法直接開啟這三個服務的 Swagger，需改用 Gateway 或開發設定存取。
+# Eureka、Config Server、RabbitMQ、Redis、MySQL、Kafka、Keycloak 與觀測服務的 port 目前仍保留，
+# 方便管理與除錯；若正式環境不需主機存取，可另外用 !reset 清除。
 # 使用合併檔後，每個 Compose 指令都要同時帶上兩個 -f；observability profile 仍可照常使用。 docker compose -f compose.yml -f compose.prod.yml --profile observability up -d
 
 services:
@@ -18,8 +20,14 @@ services:
   card:
     ports: !reset []
 
+  # 正式環境的 Prometheus 從 Compose Service DNS 抓取，不依賴主機 port。
+  prometheus:
+    volumes:
+      - "./observability-config/prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro"
+
   # 基礎設施 port 預設保留，方便本機管理與除錯。
   # 若正式環境不需主機存取，可取消註解以下設定；Redis 仍可用 docker exec 管理。
+  
   # eurekaserver:
   #   ports: !reset []
   # configserver:

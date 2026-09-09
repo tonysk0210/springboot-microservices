@@ -1,0 +1,46 @@
+# 正式環境使用 Docker Service DNS，直接從 Compose 網路抓取指標。
+# 不依賴主機 port，因此可搭配 compose.prod.yml 的 ports: !reset []。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'account'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'account:8080' ]
+
+  - job_name: 'loan'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'loan:8090' ]
+
+  - job_name: 'card'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'card:9000' ]
+
+  - job_name: 'gatewayserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'gatewayserver:8072' ]
+
+  - job_name: 'messageservice'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'messageservice:9010' ]
+
+  - job_name: 'eurekaserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'eurekaserver:8070' ]
+
+  - job_name: 'configserver'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: [ 'configserver:8071' ]
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: [ 'prometheus:9090' ]
