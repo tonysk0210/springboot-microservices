@@ -542,75 +542,57 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
-  #  kafka —— 第二種訊息系統（跟 RabbitMQ 並存，用來對照兩者的差異）
-  #
-  #  🔑 account 同時接兩個 broker：
-  #        RabbitMQ  send-communication / communication-sent   通知流程（指令）
-  #        Kafka     kafka-send-communication / kafka-communication-sent  事件紀錄（可重播）
-  #     同一次開戶會各送一則，行為差異一目了然：
-  #        RabbitMQ 那則被 messageservice 消費掉就消失
-  #        Kafka 那則留在 topic 裡，offset 可以倒回去重讀
-  #
-  #  ⚠ KRaft 模式（Kafka 3.3+ 起不需要 ZooKeeper），單一節點同時當 broker 和 controller。
-  #    所以下面那堆 replication-factor 都要設成 1 —— 預設是 3，單節點會啟動失敗。
+  # kafka：與 RabbitMQ 並存的事件 broker。
+  # RabbitMQ 訊息通常消費後移除；Kafka 事件會保留在 topic，可依 offset 重播。
+  # 使用 KRaft 單節點模式，不需要 ZooKeeper；副本數必須設為 1。
   # ---------------------------------------------------------------------------
   
   kafka:
     image: apache/kafka:4.3.1
     container_name: kafka-ms
     ports:
-      # ⚠⚠ 這裡跟 MySQL「不一樣」，是這份設定最容易踩的地方。
-      #
-      #   MySQL：一個 3306 兩邊都能用 —— 客戶端連上去就結束了。
-      #   Kafka：客戶端連上任何一台後，broker 會「回報自己的位址」叫客戶端改連那裡
-      #          （因為要直接連到各 partition 的 leader）。
-      #          所以回報 kafka:9092 的話，IntelliJ 解析不到那個名字 → 連不上。
-      #
-      #   解法是依執行環境開 listener，各自回報該環境能解析的位址：
-      #       INTERNAL    kafka:9092                       給 Compose 容器用
-      #       EXTERNAL    localhost:29092                  給 Windows / IntelliJ 用
-      #       KUBERNETES  host.docker.internal:39092       給本機 Kubernetes Pod 用
+      # Kafka 會回報 advertised listener 位址，因此不同環境使用不同 listener：
+      # INTERNAL=kafka:9092（Compose）、EXTERNAL=localhost:29092（主機）、
+      # KUBERNETES=host.docker.internal:39092（本機 Kubernetes）。
       - "29092:29092"
       - "39092:39092"
 
     environment:
-      # ── KRaft 單節點 ────────────────────────────────────────────────────
-      KAFKA_NODE_ID: 1
+      # KRaft 單節點：同時扮演 broker 與 controller。
+      KAFKA_NODE_ID: 1 
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
-      # ── 三種客戶端 listener + 一個內部選舉用 ────────────────────────────
+      # 客戶端 listener 與 controller listener。
       KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,KUBERNETES://:39092,CONTROLLER://:9093
-      # 🔑 broker 會依照客戶端連入的 listener，回報該 listener 對應的位址。
+      # Broker 會回報與客戶端環境相符的位址。
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092,KUBERNETES://host.docker.internal:39092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,KUBERNETES:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
-      # ⚠ 這三行不能省 —— 預設值是 3，單節點湊不到三份副本會直接啟動失敗。
+      # 單節點只能使用 1 份副本；預設 3 會導致啟動失敗。
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
-      # 本機開發不需要等 —— 預設 3 秒是為了讓多台消費者一起加入再分配，
-      # 單機時只會讓第一次啟動白等。
+      # 本機單節點不需等待 Consumer 重新分配。
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
-      # 訊息實際存放的位置（對應下面的 volume）
+      # Kafka 訊息與 offset 的儲存位置。
       KAFKA_LOG_DIRS: /var/lib/kafka/data
 
     volumes:
-      # ⚠ 不掛的話容器重建就失去所有訊息和 offset —— 那樣「可重播」這個
-      #   最大的賣點就示範不出來了。
+      # 保留訊息與 offset，容器重建後仍可重播。
       - "kafka-data:/var/lib/kafka/data"
 
     healthcheck:
-      # image 內建的 CLI 工具，能列出 topic 就代表 broker 真的可用了。
+      # 能列出 topic 代表 Broker 已可用。
       test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1" ]
       interval: 10s
       timeout: 10s
       retries: 12
-      # ⚠ KRaft 第一次啟動要格式化儲存目錄，比 MySQL 還慢。
+      # 預留 KRaft 初始化與格式化儲存目錄的時間。
       start_period: 45s
 
     # 不是 Spring 服務，只要記憶體上限那一層
@@ -619,94 +601,37 @@ services:
       service: resource-limits
 
   # ---------------------------------------------------------------------------
-  #  messageservice —— 事件驅動的通知服務（模擬寄信 / 發簡訊）
-  #
-  #  🔑 本專案唯一「不走 HTTP」的服務：沒有 Controller、不註冊 Eureka、
-  #     gateway 也沒有它的路由。RabbitMQ 與 Kafka 各跑一條完整往返：
-  #         account ──send-communication──▶ 我 ──communication-sent──▶ account
-  #         account ──kafka-send-communication──▶ 我 ──kafka-communication-sent──▶ account
-  #
-  #  ⚠ 用 spring-bus-base 不是 microservice-base ——
-  #    它沒有 Config Client 也沒有 Eureka Client，那層帶的
-  #    CONFIGSERVER_HOST / EUREKA_URL / H2 設定對它全都沒有作用。
-  #    使用 spring-bus-base 取得 SPRING_RABBITMQ_HOST；Kafka 位址
-  #    則在本服務下方另外覆寫。
-  #
-  #  ⚠ 刻意「不」depends_on account —— 兩者透過 exchange 解耦，
-  #    誰先起來都沒關係。account 早起的話訊息會在 queue 裡等著。
+  # messageservice：事件驅動的通知服務，模擬寄信與發簡訊。
+  # 業務流程不經 Gateway／Eureka，RabbitMQ 與 Kafka 各自完成通知往返：Account → MessageService → Account
   # ---------------------------------------------------------------------------
   messageservice:
-    # image 由 Jib 建：cd messageservice && ./mvnw compile jib:dockerBuild
     image: anthonysk/messageservice:0.0.1-SNAPSHOT
     container_name: messageservice-ms
     ports:
-      # ⚠ 這個 port 只給 /actuator/health 和 function-web 的測試端點用，
-      #   業務流量完全走 RabbitMQ，不經過它。
+      # 僅供 healthcheck 與 function-web 測試端點使用；業務訊息走 RabbitMQ／Kafka。
       - "9010:9010"
 
-    extends:
-      file: common.yml
-      service: spring-bus-base
-
     environment:
-      # microservice-base 才有這一項，這裡單獨補上（它有裝 OpenTelemetry）。
+      # 指定 Tempo 的 OTLP 端點。
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
-      # 容器內走 Kafka INTERNAL listener；本機 application.yaml 走 localhost:29092。
+      # 容器使用 Kafka INTERNAL listener；本機則使用 localhost:29092。
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
 
-    depends_on:
-      kafka:
-        condition: service_healthy
-
     healthcheck:
-      # Jib + alpine 基底 → 有 BusyBox wget，寫法同 configserver / eurekaserver / card。
+      # 使用 image 內建 wget 檢查服務是否健康。
       test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:9010/actuator/health" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
 
+    extends:
+      file: common.yml
+      service: spring-bus-base
 
-
-
-
-
-  # ###########################################################################
-  # ###########################################################################
-  # ##                                                                       ##
-  # ##            以下為「觀測性」堆疊，跟上面的微服務完全分開                  ##
-  # ##                                                                       ##
-  # ##   平常不會啟動（profiles: observability）。要用時多加一個參數：          ##
-  # ##       docker compose --profile observability up -d                    ##
-  # ##   只關觀測性：                                                         ##
-  # ##       docker compose --profile observability stop loki alloy grafana  ##
-  # ##                                                                       ##
-  # ##   三個角色，用監視器比喻：                                              ##
-  # ##       alloy    攝影機 —— 從 Docker 撈所有容器的 log                     ##
-  # ##       loki     硬碟   —— 存起來、提供查詢                              ##
-  # ##       grafana  螢幕   —— 畫面 http://localhost:3000                    ##
-  # ##                                                                       ##
-  # ##   資料流：容器印 log → Docker 收著 → alloy 撈走 → loki 存 → grafana 看  ##
-  # ##                                                                       ##
-  # ##   設定檔放在 observability-config/，一個資料夾一個角色：              ##
-  # ##       observability-config/alloy/config.alloy                          ##
-  # ##       observability-config/grafana/datasource.yml                      ##
-  # ##   （loki 用 image 內建的預設設定，不需要設定檔）                         ##
-  # ##                                                                       ##
-  # ##   ⚠ 刻意「不用」Grafana 官方範例那份 7 容器的架構                       ##
-  # ##     （read/write/backend 拆分 + nginx + MinIO）——                     ##
-  # ##     那是在示範水平擴充，本機用不到，而且 MinIO 佔用 9000 會撞到 card。   ##
-  # ##                                                                       ##
-  # ##   之後要加 Prometheus（指標）和 Tempo（追蹤）就加在這個區塊裡。          ##
-  # ##   ⚠ 那兩個「必須」跟微服務同網路（Prometheus 要主動抓 /actuator，        ##
-  # ##     Tempo 要接收服務送來的 span）——合併進本檔案就是為了這件事。         ##
-  # ##     Log 反而不需要同網路，因為 alloy 是問 Docker 不是問容器。           ##
-  # ##                                                                       ##
-  # ###########################################################################
-  # ###########################################################################
-
-
-
+    depends_on:
+      kafka:
+        condition: service_healthy
 
 # =============================================================================
 #  named volume 宣告
@@ -738,116 +663,3 @@ networks:
   default:
     name: springboot-microservices_default
     driver: bridge
-
-
-# =============================================================================
-#  常用指令（PowerShell，在專案根目錄執行）
-#
-#  ── 先建 image（本檔案不負責建，改過程式碼一定要重跑對應那行）─────────────
-#  cd configserver;   ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd eurekaserver;   ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd account;        docker build -t anthonysk/account:0.0.1-SNAPSHOT .   （Dockerfile）
-#  cd loan;           ./mvnw spring-boot:build-image "-Dmaven.test.skip=true"（Buildpacks） ./mvnw spring-boot:build-image "-Dmaven.test.skip=true" "-Dspring-boot.build-image.publish=true"
-#  cd card;           ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd messageservice; ./mvnw compile jib:dockerBuild                       （Jib）
-#  cd gatewayserver;  ./mvnw compile jib:dockerBuild                       （Jib）
-#
-#  ⚠ 六個服務刻意用三種不同的建置方式（Jib / Dockerfile / Buildpacks），
-#    是為了對照各自的優缺點 —— 正式專案應該統一成一種。
-#  ⚠ 沒建就 up 的話錯誤訊息是 pull access denied（很誤導）——
-#    實際上只是本機還沒有這個 image，跟權限無關。
-#
-#  ⚠ 本機若還有 IntelliJ / mvnw 跑著同樣的服務，port 會衝突
-#    （8070 / 8071 / 8072 / 8080 / 8090 / 9000 / 5672），up 之前先停掉。
-#
-#  ── 跑 ────────────────────────────────────────────────────────────────────
-#  docker compose up -d              全部啟動
-#  docker compose up -d account      只重啟一個（image 重建後用這個換掉舊容器）
-#  docker compose ps                 看狀態（含 port 與健康狀態）
-#  docker compose logs -f            看 log（混流，每行標服務名）
-#  docker compose exec account sh    進容器
-#  docker compose down               收工（容器 + 網路一起清）
-#
-#  ── 驗證（Keycloak）──────────────────────────────────────────────────────
-#  ⚠ 沒有開關，up -d 就有。打 /bank/** 一定要帶 Bearer token，不帶就是 401。
-#    先去 http://localhost:7080 拿 token（admin/admin），Postman 設定見專案筆記。
-#  ⚠ down 不會刪 volume，Keycloak 裡建的 client / role 會留著。
-#    真要清空（會失去所有 client / role / user）：docker compose down -v
-#
-#  ── port 收斂（模擬正式環境）──────────────────────────────────────────────
-#  docker compose -f compose.yml -f compose.prod.yml up -d
-#    account / loan / card 的 port 不對外，只剩 8072 一個入口。
-#  ⚠ 之後每個指令都要帶同樣的 -f，或設 $env:COMPOSE_FILE = "compose.yml;compose.prod.yml"
-#
-#  ── 資料庫 ────────────────────────────────────────────────────────────────
-#  docker exec mysql-ms mysql -uroot -proot -e "SHOW DATABASES;"
-#  docker exec mysql-ms mysql -uroot -proot accountdb -e "SELECT * FROM accounts;"
-#
-#  ⚠ 改了表結構（schema.sql）之後要重建資料庫，因為 CREATE TABLE IF NOT EXISTS
-#    對既有的表沒有作用，ddl-auto: validate 會讓服務啟動失敗：
-#      只清一個  docker exec mysql-ms mysql -uroot -proot -e "DROP DATABASE accountdb; CREATE DATABASE accountdb;"
-#      全部重來  docker compose rm -sf mysql; docker volume rm springboot-microservices_mysql-data; docker compose up -d mysql
-#
-#  ── 推到 GitHub Packages（可選）───────────────────────────────────────────
-#  .\push-images-to-ghcr.ps1
-#
-#  ── 驗證服務互連 ──────────────────────────────────────────────────────────
-#  docker compose exec account sh
-#  wget -qO- http://configserver:8071/actuator/health    → {"status":"UP"}
-#
-#  ── 主機端可開的網址 ──────────────────────────────────────────────────────
-#    http://localhost:8072/bank/account/api/fetch-account?mobileNumber=...
-#                                                  ↑ 正式入口，走 Gateway
-#    http://localhost:8072/actuator/gateway/routes 目前生效的路由表
-#    http://localhost:8080/swagger-ui/index.html   account（8090 loan、9000 card）
-#    localhost:3306                                MySQL（root/root，DBeaver 或
-#                                                  IntelliJ Database 直接連）
-#    http://localhost:8071/account/default         configserver 提供給 account 的設定
-#    http://localhost:8070                         Eureka 儀表板（四個服務都該在上面）
-#    http://localhost:15672                        RabbitMQ 管理介面
-#    http://localhost:7080                         Keycloak 管理介面（admin/admin）
-#
-#  ⚠ 改了程式碼、重建 image 之後一定要再 up 一次 —— 已在跑的容器不會自動換。
-#    好消息是 Compose 會偵測 image 變了並重建容器，不必像 docker run 先手動 rm -f。
-# =============================================================================
-
-
-# =============================================================================
-#  資料庫的演進紀錄（這一段是「為什麼變成現在這樣」，不是待辦）
-#
-#  ── 曾經：H2 記憶體模式 ──────────────────────────────────────────────────
-#  三個 image 在建置階段把資料庫設成 jdbc:h2:mem:xxx，容器一關資料就蒸發。
-#
-#  ── 然後：H2 檔案模式 + 三個 volume ──────────────────────────────────────
-#  改成 jdbc:h2:file:/data/xxx 並各掛一塊 volume，資料留得住了。
-#  但暴露出三個持續踩到的問題：
-#      ① 本機和容器是「兩份不同的資料」
-#         IntelliJ 跑 → ~/h2db/xxx（Windows 家目錄）
-#         容器跑     → volume 裡（WSL2）
-#         用 IntelliJ 建的帳戶，切成容器就查不到。
-#      ② schema.sql 是 CREATE TABLE IF NOT EXISTS，加新欄位對既有資料庫無效，
-#         ddl-auto: validate 直接讓服務啟動失敗，只能刪檔重建。
-#      ③ 檔案在 WSL2 的 volume 裡，Windows 的 DBeaver 看不到，
-#         只能靠容器內的 h2-console 看資料（還要額外開 WEB_ALLOW_OTHERS）。
-#      ⚠ 還要 user: root，因為非 root 的 image 寫不進 Docker 新建的 /data。
-#
-#  ── 現在：一個 mysql 容器、三個 database ─────────────────────────────────
-#  上面三個問題一次解決：
-#      ① 兩邊連同一台 —— IntelliJ 走 localhost:3306、容器走 mysql:3306
-#      ② 改結構就 docker volume rm mysql-data 重建（見 account/sql/schema.sql）
-#      ③ DBeaver / IntelliJ Database 直接連 localhost:3306
-#
-#  🔑 Java 程式碼一行都沒改 —— 因為 application.yaml 從一開始就把 URL 寫成
-#     ${SPRING_DATASOURCE_URL:...}，而且刻意沒寫死 database-platform，
-#     Hibernate 會自己從連線挑方言。這是當初留的伏筆，這次真的用上了。
-#     ⚠ 但 driverClassName / username / password 當初「沒有」做成佔位符，
-#       那三行是這次唯一被卡住的地方 —— 現在 driverClassName 直接刪掉
-#       （Boot 從 URL 推斷），帳密改成 ${VAR:預設}。
-#
-#  ── 還沒做的 ─────────────────────────────────────────────────────────────
-#  ⚠ 用 root 連資料庫，三個服務共用同一組帳密。正式環境該每個 database
-#    一個專用帳號，只授權它自己那個 schema。
-#  ⚠ 改表結構仍然要「刪掉重建」。欄位一多就該換 Flyway 或 Liquibase ——
-#    它們會記錄哪些遷移跑過了，不用每次清空資料。
-#  ⚠ Keycloak 仍然用它自己的 H2（start-dev），沒有跟著搬過來。
-# =============================================================================

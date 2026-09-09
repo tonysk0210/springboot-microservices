@@ -2,8 +2,6 @@ server:
   port: 9010
 
 logging:
-  level:
-    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
 
