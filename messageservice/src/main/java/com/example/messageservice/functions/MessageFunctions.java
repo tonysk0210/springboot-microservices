@@ -8,25 +8,19 @@ import org.springframework.context.annotation.Configuration;
 import java.util.function.Function;
 
 /**
- * 訊息處理函式 —— 不是 REST 端點，是 Spring Cloud Function 的處理器。
- * <p>
- * 設定成 {@code spring.cloud.function.definition: email|sms} 之後會串成一條：
- * <pre>
- *     RabbitMQ ──▶ email() ──▶ sms() ──▶ RabbitMQ
- *     AccountMsgDto  AccountMsgDto   Integer
- *
- *     Kafka ──▶ kafkaEmailSms() ──▶ Kafka
- *              AccountMsgDto → Integer
- * </pre>
- * 🔑 前一個的回傳型別必須是後一個的參數型別，否則啟動就失敗。
+ * Spring Cloud Function 訊息處理器，不是 REST Controller。
+ * email() 與 sms() 會依 application.yaml 的設定串接，依序處理 RabbitMQ 訊息；
+ * kafkaEmailSms() 則提供相同流程的 Kafka 入口。前一個函式的輸出必須接得上下一個函式的輸入。
+ * 開發測試也可用 HTTP 呼叫：POST http://localhost:9010/email 或 /sms，並傳入 AccountMsgDto JSON；
+ * 完整的 email() → sms() 串接由 RabbitMQ binding 觸發，{@code emailsms-in-0} 不是 HTTP URL。
+ * 正式通知流程仍由 RabbitMQ／Kafka 訊息觸發。
  */
 @Slf4j
 @Configuration
 public class MessageFunctions {
 
     /**
-     * 模擬寄信。
-     * ⚠ 回傳型別刻意跟輸入一樣 —— 為了讓後面的 sms() 接得下去。
+     * 模擬寄送 email，原樣傳給下一個 sms() 函式。
      */
     @Bean
     public Function<AccountMsgDto, AccountMsgDto> email() {
@@ -37,26 +31,23 @@ public class MessageFunctions {
     }
 
     /**
-     * 模擬發簡訊，並回傳帳號。
-     * 🔑 這是整條鏈的最後一站，回傳值會被丟到輸出佇列，
-     * 讓 account 服務知道「這個帳號通知發完了」。
+     * 模擬寄送簡訊；流程最後回傳帳號，送到輸出佇列通知 Account 已完成。
      */
     @Bean
     public Function<AccountMsgDto, Integer> sms() {
         return accountsMsgDto -> {
-            log.info("寄送簡訊，內容：{}", accountsMsgDto);
+            log.info("寄送 sms，內容：{}", accountsMsgDto);
             return accountsMsgDto.accountNumber();
         };
     }
 
     /**
-     * Kafka 版通知處理器。使用獨立 bean 才能把同一套處理流程綁到另一組
-     * Kafka input/output binding；內部仍重用上面的 email 與 sms 函式。
+     * Kafka 版通知處理器，重用 email() 與 sms() 完成同一套通知流程。
      */
     @Bean
     public Function<AccountMsgDto, Integer> kafkaEmailSms() {
         return accountsMsgDto -> {
-            log.info("Kafka 開始處理通知，內容：{}", accountsMsgDto);
+            log.info("Kafka 開始處理 sms & email 通知，內容：{}", accountsMsgDto);
             Integer accountNumber = sms().apply(email().apply(accountsMsgDto));
             log.info("Kafka 通知處理完成，回傳帳號：{}", accountNumber);
             return accountNumber;

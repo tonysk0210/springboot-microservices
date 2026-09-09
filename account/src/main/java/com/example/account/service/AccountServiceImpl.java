@@ -24,18 +24,14 @@ import java.util.Random;
 @RequiredArgsConstructor
 public class AccountServiceImpl implements IAccountService {
 
+    /**
+     * 發布帳戶建立事件，由 {@link com.example.account.events.AccountEventListener} 在交易提交後發送 RabbitMQ 通知。
+     */
+    private final ApplicationEventPublisher events;
+
     private final AccountRepo accountRepo;
     private final CustomerRepo customerRepo;
 
-    /**
-     * 發布「帳戶建立完成」事件。
-     * <p>
-     * 🔑 這裡「不」直接送 RabbitMQ —— 真正送訊息的是
-     * {@link com.example.account.events.AccountEventListener}，它掛在
-     * {@code AFTER_COMMIT}，等交易 commit 成功才動作。
-     * 這樣 RabbitMQ 掛掉時只會少一則通知，不會害開戶失敗（原因見那個類別）。
-     */
-    private final ApplicationEventPublisher events;
 
     @Transactional
     @Override
@@ -128,10 +124,7 @@ public class AccountServiceImpl implements IAccountService {
 
 
     /**
-     * 收到 messageservice 的回報後，把帳戶標記成「已通知」。
-     * <p>
-     * ⚠ 這裡「不是」用 orElseThrow —— 訊息是非同步來的，帳號可能已經被刪掉了，
-     * 那不算錯誤。拋例外的話訊息會被退回 queue 一直重試，變成無限迴圈。
+     * 收到 MessageService 回報後，將帳戶標記為已通知；找不到帳戶時略過，避免訊息無限重試。
      */
     @Transactional
     @Override
@@ -161,25 +154,14 @@ public class AccountServiceImpl implements IAccountService {
     // ///////////////
 
     /**
-     * 發布「帳戶建立完成」事件。
-     * <p>
-     * 🔑 這裡「只是登記」，不會馬上送出去 —— 事件被暫存著，等外層的交易
-     * commit 成功之後，{@link com.example.account.events.AccountEventListener}
-     * 才會真的送到 RabbitMQ。
-     * <p>
-     * ⚠ 所以這個方法「不會失敗」，即使 RabbitMQ 掛著也一樣。
-     * 這正是修正的重點：通知寄不出去不該害開戶失敗。
+     * 發布帳戶建立事件；交易提交後由 Listener 發送 RabbitMQ 通知。
      */
     private void sendCommunication(Account account, Customer customer) {
         AccountMsgDto msg = new AccountMsgDto(
                 account.getAccountNumber(), customer.getName(),
                 customer.getEmail(), customer.getMobileNumber());
 
-        // 這一行是「留言」不是「行動」—— 什麼都還沒送出去。
-        //   ① Spring 看 msg 的型別（AccountMsgDto）
-        //   ② 找到參數型別相符的監聽器 AccountEventListener.onAccountCreated
-        //   ③ 那個監聽器標了 AFTER_COMMIT，所以先記著、不執行
-        //   ④ 等交易 commit 成功之後，Spring 才回頭呼叫它送 RabbitMQ
+        // 只發布本地事件；AFTER_COMMIT Listener 會在交易成功後才送 RabbitMQ。
         events.publishEvent(msg);
     }
 

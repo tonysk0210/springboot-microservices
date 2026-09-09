@@ -9,69 +9,29 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * 帳戶建立完成後，通知 messageservice 去寄信 / 發簡訊。
- * <p>
- * 🔑 <b>為什麼要繞這一圈，不直接在 Service 裡呼叫 streamBridge.send()</b>
- * <p>
- * 原本的寫法是在 {@code @Transactional} 的方法「裡面」送訊息：
- * <pre>
- *     RabbitMQ 掛掉 → send() 丟例外 → 例外傳出 createAccount()
- *                  → 交易回滾 → 客戶和帳戶都沒建成 → API 回 500
- * </pre>
- * 也就是「通知寄不出去」害得「開戶失敗」—— 完全違背當初選非同步的理由
- * （寄信是副作用，不該拖垮主流程）。實測過：只開 MySQL 不開 RabbitMQ，
- * create-account 回 500 且資料庫是空的。
- * <p>
- * 改成 {@code AFTER_COMMIT} 之後：
- * <pre>
- *     交易先 commit（帳戶確實建好了）→ 才送訊息
- *     RabbitMQ 掛掉 → 只有通知沒發出去，帳戶還在
- * </pre>
- * <p>
- * ⚠ 這不是完美方案 —— 帳戶建好但通知永遠沒送出去的情況仍然可能發生，
- * 而且沒有重試。要「兩邊都保證」得用 outbox pattern：訊息先寫進同一個
- * 交易的資料表，另外用排程掃出來送。本專案是學習用途，停在這一層。
- * <p>
- * ⚠ {@code @TransactionalEventListener} 只在「發布事件時正處於交易中」才會被觸發。
- * 如果哪天有人在沒有交易的地方發這個事件，它會被「安靜地丟掉」——
- * 不報錯、也不執行。要改成沒交易也執行的話是 {@code fallbackExecution = true}。
+ * 帳戶交易提交後，發布通知訊息給 MessageService；訊息失敗不回滾已建立的帳戶。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class AccountEventListener {
 
+    /**
+     * 透過設定好的 output binding，將訊息發送到 RabbitMQ 與 Kafka。
+     */
     private final StreamBridge streamBridge;
 
-    // ── 這個 annotation 做兩件事 ─────────────────────────────────────────────
-    //  ① 誰來觸發：看「參數型別」。有人 publishEvent 一個 AccountMsgDto 就呼叫這裡。
-    //     ⚠ 型別對不上就完全不會被觸發，而且不報錯。
-    //  ② 什麼時候觸發：AFTER_COMMIT = 等交易 commit 成功之後。
-    //     所以這裡失敗已經沒有東西可以回滾了 —— 這正是修正的重點。
-    //
-    //  其他可選的時間點：BEFORE_COMMIT / AFTER_ROLLBACK / AFTER_COMPLETION。
-    //  ⚠ AFTER_COMMIT 本來就是預設值，明寫出來是因為「刻意選在 commit 之後」
-    //    是這個類別存在的唯一理由，不該靠讀者去記預設值。
-    // -------------------------------------------------------------------------
+    // 接收 AccountMsgDto 事件，並在交易成功提交後執行。
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAccountCreated(AccountMsgDto msg) {
-        // ⚠ 這個 try 不能省。AFTER_COMMIT 的例外「會」往上傳回呼叫端，
-        //   雖然資料已經 commit 不會回滾了，但使用者還是會收到 500。
-        //   吞掉它才是真正的 fire-and-forget —— 代價是失敗只留在 log 裡。
+        // 捕捉發送失敗，避免通知問題影響已完成的開戶請求；失敗只記錄在 log。
         try {
-            // ① RabbitMQ —— 通知流程（指令）。messageservice 消費掉之後訊息就消失。
+            // RabbitMQ：發送通知指令，交由 MessageService 處理。
             log.info("Account 準備發布 RabbitMQ 通知指令：{}", msg);
             boolean sent = streamBridge.send("accountSendCommunication-out-0", msg);
             log.info("RabbitMQ 通知指令是否已交給 output binding：{}", sent);
 
-            // ② Kafka —— 事件紀錄。同樣的內容會被 messageservice 處理，
-            //   但仍留在 topic 裡（預設 7 天）可以重播。
-            // 🔑 刻意送兩份是為了「同一件事、兩種語意」的對照：
-            //      RabbitMQ「請你去寄信」 —— 做完就結束，沒有保留價值
-            //      Kafka   「開戶這件事發生了」—— 誰要用自己來讀，可以事後回溯
-            // messageservice 處理後會再把帳號送到 Kafka 的 kafka-communication-sent，
-            // account 消費後更新 communication_sw。
-            //   要看內容就從 CLI 讀，指令寫在 application.yaml 的 accountSendKafkaCommunication-out-0 那段。
+            // Kafka：發送可保留、可重播的開戶事件。
             log.info("Account 準備發布 Kafka 開戶事件：{}", msg);
             boolean published = streamBridge.send("accountSendKafkaCommunication-out-0", msg);
             log.info("Kafka 開戶事件是否已交給 output binding：{}", published);

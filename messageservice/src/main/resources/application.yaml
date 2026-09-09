@@ -25,7 +25,7 @@ spring:
   cloud:
     # ── 非同步通知（RabbitMQ 與 Kafka 並行示範）────────────────────────────
     function:
-      # 分號表示兩條獨立流程；email|sms 是 RabbitMQ，kafkaEmailSms 是 Kafka。
+      # 分號表示兩條獨立流程（宣告「哪些函式流程要被接上外部世界」）；email|sms 是 RabbitMQ，kafkaEmailSms 是 Kafka。（通常就是 @Bean 方法名）
       definition: email|sms;kafkaEmailSms
     stream:
       # 兩個 binder 並存時，沒有明寫 binder 的基礎設施 binding 預設走 RabbitMQ。
@@ -37,30 +37,33 @@ spring:
           type: kafka
 
       bindings:
-        # RabbitMQ：account → messageservice → account
-        emailsms-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
-          destination: send-communication
+        # RabbitMQ：queue → messageservice → exchange
+        emailsms-in-0: # 預設輸入 binding 名稱：email|sms 去掉 | 後加上 -in-0；使用預設命名時需一致 （Spring Cloud Stream 內部輸入通道名稱）
           binder: rabbit1
-          group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
-        emailsms-out-0: # 有函式（同一條鏈的輸出）改不得
-          destination: communication-sent
+          destination: send-communication # RabbitMQ 讀取的訊息來源的 Exchange 名稱
+          group: ${spring.application.name} # queue 名稱：取固定名字 → 每筆訊息只交給其中一個 instance 處理，不重覆處理、停機不掉訊息
+        emailsms-out-0: # 預設輸出 binding 名稱：email|sms 去掉 | 後加上 -out-0
           binder: rabbit1
+          destination: communication-sent # RabbitMQ 發出的訊息目的地的 Exchange 名稱
 
-        # Kafka：kafka-send-communication → messageservice → kafka-communication-sent
+        # Kafka：queue → messageservice → exchange
         kafkaEmailSms-in-0:
-          destination: kafka-send-communication
           binder: kafka1
+          destination: kafka-send-communication
           group: ${spring.application.name}-kafka
         kafkaEmailSms-out-0:
-          destination: kafka-communication-sent
           binder: kafka1
+          destination: kafka-communication-sent
 
 management:
   # Compose healthcheck 使用 /actuator/health；readiness/liveness 是 Kubernetes probes 才需要。
   endpoints:
     web:
       exposure:
-        include: health,prometheus,metrics
+        # functions：列出 Spring Cloud Function catalog 裡所有「可路由的函式名稱」
+        # 與其輸入／輸出型別。HTTP 端點的路徑就是這份清單上的名字，打 404 時先看它，
+        # 不必去猜 binding 名稱（emailsms-in-0 那種）跟函式名稱的對應關係。
+        include: health,prometheus,metrics,functions
 
   endpoint:
     # 顯示各元件的健康細節；元件通常由 dependency 提供的 HealthIndicator 建立。
@@ -90,5 +93,3 @@ management:
     metrics:
       export:
         enabled: false
-
-

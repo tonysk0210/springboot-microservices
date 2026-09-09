@@ -8,7 +8,6 @@ logging:
     org.hibernate.SQL: DEBUG                          # Hibernate 印出 SQL（含參數）—— 方便對照資料表結構與資料
     # 只對 Feign Client 套件開啟 DEBUG；實際記錄內容由 loggerLevel 決定。
     com.example.account.service.client: DEBUG
-    org.apache.kafka.clients.consumer.internals.OffsetFetcherUtils: ERROR
   pattern:
     # Console log 格式：時間、等級、執行緒、服務名、correlation ID、traceId、spanId、logger 與訊息。 %X{...} 從 MDC 讀取追蹤 ID；沒有值時留白。
     console: "%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %magenta([${spring.application.name:},%X{X-Gateway-Correlation-Id:-},%X{traceId:-},%X{spanId:-}]) %yellow(%logger{15}) - %msg%n"
@@ -77,19 +76,11 @@ spring:
 
     # ── 非同步通知（寄信 / 發簡訊）─────────────────────────────────────────
     function:
-      # 填了 Spring 才會啟用這個 @Bean 去監聽訊息 —— 不填的話 bean 存在但沒人觸發。
-      # ⚠ 將來要加第二個函式的話用「分號」隔開（a;b），不是逗號 ——
-      #   逗號是「組合成一個複合函式」的意思，寫錯會找不到函式而靜靜失效。
+      # 指定要啟用並綁定的訊息函式；名稱是 Function Bean name（通常就是 @Bean 方法名）。
       definition: accountReceiveCommunication;accountReceiveKafkaCommunication
     stream:
-      # ⚠⚠ 有兩個 binder 時這一行不能省。
-      #   Spring Cloud Bus 也走 Stream，但它的 binding（springCloudBusInput/Output）
-      #   沒有寫在下面 → 會去吃「預設 binder」。只有一個 binder 時 Spring 自動選那個；
-      #   兩個時就不知道該選誰，啟動失敗而且錯誤訊息不會提到 Bus。
+      # 兩個 binder 並存時，沒有明寫 binder 的基礎設施 binding 預設走 RabbitMQ。
       defaultBinder: rabbit1
-
-      # 🔑 Kafka 和 RabbitMQ 的連線設定都寫在下面 spring.kafka / spring.rabbitmq
-      #    ——「同一層、同一種風格」。這裡只負責取名字和指定型別。
       binders:
         rabbit1:
           type: rabbit
@@ -103,14 +94,14 @@ spring:
         springCloudBusOutput:
           binder: rabbit1
 
-        # ── RabbitMQ：通知流程（指令，處理完就消失）────────────────────────
-        accountSendCommunication-out-0: # 沒有函式，由 streamBridge.send 自己取
+        # RabbitMQ：queue → account → exchange
+        accountSendCommunication-out-0: # Account 發送通知工作的輸出 binding，由 StreamBridge 使用
+          binder: rabbit1
           destination: send-communication
+        accountReceiveCommunication-in-0: # Account 接收通知完成結果的輸入 binding
           binder: rabbit1
-        accountReceiveCommunication-in-0: # 名字 = 上面的 definition + -in-0，有函式（email|sms）改不得
           destination: communication-sent
-          binder: rabbit1
-          group: ${spring.application.name} # queue 取固定名字 → 多台不重複、停機不掉訊息
+          group: ${spring.application.name} # 固定 Queue 群組，多個 Account instance 共用且避免重複處理
 
         # ── Kafka：事件紀錄（完整往返，topic 內仍留著可重播）──────────────────
         # 🔑 刻意跟上面送「一模一樣的內容」到不同 broker，就是為了對照差異：
@@ -242,7 +233,7 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-        
+
   # OpenTelemetry 建立跨服務 trace；correlation-id 由自訂 filter/interceptor 處理。
   tracing:
     sampling:

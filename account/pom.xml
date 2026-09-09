@@ -35,11 +35,9 @@
         <spring-cloud.version>2025.1.2</spring-cloud.version>
     </properties>
     <dependencies>
-        <!-- Kafka 的 binder。
-             ⚠ RabbitMQ 的 binder「不用寫」—— spring-cloud-starter-bus-amqp 已經帶進來了。
-             🔑 兩個 binder 同時存在時，application.yaml 一定要設 default-binder，
-                否則 Spring Cloud Bus 的 binding（springCloudBusInput/Output）
-                不知道該用哪個，啟動會失敗而且訊息看不出是 Bus 的問題。 -->
+        <!-- Kafka binder：讓 Account 可發布與接收 Kafka 事件。
+             RabbitMQ binder 已由 Spring Cloud Bus 依賴帶入；
+             兩個 binder 並存時，application.yaml 必須指定 default-binder，讓 Bus 知道使用哪個 broker。 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-stream-binder-kafka</artifactId>
