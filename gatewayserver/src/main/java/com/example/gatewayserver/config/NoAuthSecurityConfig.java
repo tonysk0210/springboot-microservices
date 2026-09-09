@@ -10,25 +10,10 @@ import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.web.server.SecurityWebFilterChain;
 
 /**
- * 沒帶 {@code auth} profile 時的「不驗證」模式 —— 全部放行。
- * <p>
- * ⚠ <b>這個類別不是可有可無的。</b>直覺上「不要驗證」＝「不要註冊 SecurityConfig」，
- * 但那樣做的結果不是放行，而是「全部被擋」：
- * <pre>
- *     spring-boot-starter-security 在 classpath
- *              ↓
- *     Boot 發現沒有任何 SecurityWebFilterChain bean
- *              ↓
- *     自動配一條預設的 —— 全部要求認證 + HTTP Basic 挑戰
- *              ↓
- *     每個請求都跳 401 + WWW-Authenticate: Basic，比原本更難用
- * </pre>
- * 所以必須「主動」提供一條放行的 chain 把預設那條頂掉。
- * <p>
- * 🔑 判斷是不是踩到這個坑：看回應有沒有 {@code WWW-Authenticate: Basic} 標頭。
- * 有的話代表這個類別沒生效，接手的是 Boot 的預設 chain。
+ * 未啟用 {@code auth} profile 時，放行所有請求供本機開發使用。
+ * 必須提供這條 Security chain，避免 Spring Boot 自動啟用預設登入驗證。
  *
- * @see SecurityConfig 帶 auth profile 時生效的那一份
+ * @see SecurityConfig 啟用 auth profile 時使用的安全設定
  */
 @Slf4j
 @Configuration
@@ -40,18 +25,14 @@ public class NoAuthSecurityConfig {
     public SecurityWebFilterChain permitAllFilterChain(ServerHttpSecurity http) {
         return http
                 .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
-                // ⚠ 下面三個 disable 一個都不能省 —— 只寫 permitAll 的話，
-                //   Boot 仍會掛上登入表單與 Basic 挑戰，瀏覽器一打就被導去登入頁。
+                // 停用 CSRF、HTTP Basic 與表單登入，避免仍出現登入要求。
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .build();
     }
 
-    /**
-     * 因為「不驗證」是本專案的預設值，這段警告是唯一的防呆 ——
-     * 避免哪天以為有保護、其實是全開的。
-     */
+    /** 提醒目前未啟用驗證，避免誤以為 API 已受保護。 */
     @PostConstruct
     void warnInsecure() {
         log.warn("""

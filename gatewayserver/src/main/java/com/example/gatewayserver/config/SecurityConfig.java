@@ -14,26 +14,16 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import reactor.core.publisher.Mono;
 
 /**
- * Gateway 在 OAuth2 裡的角色是「資源伺服器」—— 只驗 token，不發 token（那是 Keycloak 的事）。
- * <p>
- * ⚠ 這裡用的是「reactive 版」的整套 API，因為 Gateway 跑在 WebFlux 上：
+ * Gateway 的 OAuth2 Resource Server：驗證 Keycloak JWT 並依角色保護路由。
+ * 使用 WebFlux Security，僅在 {@code auth} profile 啟用；未啟用時由 {@link NoAuthSecurityConfig} 放行請求。
  * <pre>
- *     Servlet 陣營                    WebFlux 陣營（本檔案）
- *     EnableWebSecurity         →    EnableWebFluxSecurity
- *     HttpSecurity              →    ServerHttpSecurity
- *     SecurityFilterChain       →    SecurityWebFilterChain
- *     .authorizeHttpRequests()  →    .authorizeExchange()
- *     .requestMatchers()        →    .pathMatchers()
+ * Servlet Security             WebFlux Security（本類別）
+ * EnableWebSecurity        →   EnableWebFluxSecurity
+ * HttpSecurity             →   ServerHttpSecurity
+ * SecurityFilterChain      →   SecurityWebFilterChain
+ * authorizeHttpRequests()  →   authorizeExchange()
+ * requestMatchers()        →   pathMatchers()
  * </pre>
- * 兩套不能混用，寫錯會直接找不到類別。
- * <p>
- * 🔑 只有帶 {@code auth} profile 時才生效。沒帶的時候整個類別不存在，
- * 改由 {@link NoAuthSecurityConfig} 提供一條全部放行的 chain。
- * <pre>
- *     ./mvnw spring-boot:run                                  → 不驗證
- *     ./mvnw spring-boot:run -Dspring-boot.run.profiles=auth   → 驗證
- * </pre>
- * jwk-set-uri 也跟著搬到 {@code application-auth.yaml}，兩邊一起切換。
  */
 @Configuration
 @EnableWebFluxSecurity
@@ -44,50 +34,33 @@ public class SecurityConfig {
     public SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
         http
                 .authorizeExchange(exchanges -> exchanges
-                        // ⚠ 規則「由上往下比對，第一條符合就決定」，順序很重要。
-                        //   最寬鬆的放最上面 → 下面的角色檢查永遠輪不到。
-                        //   （課程原本第一行是 .pathMatchers(HttpMethod.GET).permitAll()，
-                        //     而本專案的 API 幾乎全是 GET，那樣寫等於完全沒有保護。）
+                        // 規則「由上往下比對，第一條符合就決定」，順序很重要會影響最終結果。
 
-                        // 給 compose healthcheck 和 Prometheus 用，不能要求 token。
+                        // Actuator 供健康檢查與 Prometheus 使用，不需 token。
                         .pathMatchers("/actuator/**").permitAll()
-                        // 斷路器跳開時 Gateway 內部 forward 到這裡，
-                        // 擋掉的話使用者看到 401 而不是那句友善訊息。
+                        // Circuit Breaker fallback 的內部端點不需 token。
                         .pathMatchers("/contactSupport").permitAll()
 
-                        // 三條業務路由各要對應的角色。
-                        // ⚠ 路徑要對上 RouteConfig 的 .path(...)，也就是「對外」的路徑，
-                        //   不是 rewritePath 之後的 /api/...。
-                        .pathMatchers("/bank/account/**").hasRole("ACCOUNTS")
+                        // 業務路由依角色控管；使用 RouteConfig 的對外路徑。
+                        .pathMatchers("/bank/account/**", "/k8s/account/**").hasRole("ACCOUNTS")
                         .pathMatchers("/bank/loan/**").hasRole("LOANS")
                         .pathMatchers("/bank/card/**").hasRole("CARDS")
 
-                        // ⚠ 這行不能省 —— reactive 版「沒有」隱含的預設拒絕，
-                        //   沒寫的話沒對上任何規則的路徑會被放行。
+                        // 其他未列出的路徑也必須通過 JWT 驗證。
                         .anyExchange().authenticated())
 
+                // 啟用 Resource Server：從 Authorization Header 讀取 Bearer JWT，使用 Keycloak 公鑰驗證，並將 token 內的 realm roles 轉成 Spring Security 權限。
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(grantedAuthoritiesExtractor())))
 
-                // ⚠ 關掉 CSRF 是「對的」—— CSRF 攻擊靠瀏覽器自動帶 cookie，
-                //   而 Bearer token 要手動放進標頭，瀏覽器不會自動帶，沒有 cookie 就沒有這個風險。
-                //   用 session / cookie 的服務才需要開。
+                // API 使用 Bearer token，不依賴 Cookie，因此停用 CSRF。如果不關掉，瀏覽器會在 POST/PUT/DELETE 時被擋掉。
                 .csrf(ServerHttpSecurity.CsrfSpec::disable);
 
         return http.build();
     }
 
     /**
-     * 把 Keycloak 的 role 轉成 Spring Security 認得的格式。
-     * <p>
-     * ⚠ 不接這個轉換器的話，hasRole("ACCOUNTS") 永遠是 false ——
-     * token 裡明明有角色卻一直 403，是 Keycloak + Spring Security 最常見的坑。
-     * <pre>
-     *     Keycloak 的 JWT：{"realm_access": {"roles": ["ACCOUNTS"]}}
-     *     Spring 要的：     ROLE_ACCOUNTS
-     * </pre>
-     * 🔑 JwtAuthenticationConverter 本身是 Servlet 陣營的類別，但它只做純轉換、
-     * 不碰 request / response，所以可以用 Adapter 包成 reactive 版重複使用。
+     * 把 Keycloak Token 裡的角色轉成 Spring Security 看得懂的權限，讓 Gateway 可以用 hasRole(...) 判斷是否允許存取 API。
      */
     private Converter<Jwt, Mono<AbstractAuthenticationToken>> grantedAuthoritiesExtractor() {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();

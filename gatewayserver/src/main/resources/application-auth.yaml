@@ -1,12 +1,8 @@
-# =============================================================================
 # auth profile：啟用 Gateway 的 OAuth2/JWT 驗證。
-# IntelliJ 可在 Active profiles 填入 auth；Compose 會自動啟用此 profile。
-# 未啟用 auth 時，改由 NoAuthSecurityConfig 放行請求。
-# =============================================================================
+# IntelliJ 需加入 auth；Compose 會自動啟用。
 spring:
-  # Gateway 只驗證 Keycloak 發出的 JWT，不負責發 token。
-  # jwk-set-uri 是 Keycloak 公鑰網址；第一次驗證 token 時才抓取。
-  # 本機使用 localhost:7080，Compose 透過環境變數改成 keycloak:8080。
+  # Gateway 只驗證 JWT，不負責發 token。
+  # 透過 Keycloak 公鑰確認 token 有效；容器環境由環境變數改用 keycloak:8080。
   security:
     oauth2:
       resourceserver:
