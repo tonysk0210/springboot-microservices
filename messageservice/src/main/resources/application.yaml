@@ -13,8 +13,8 @@ spring:
   rabbitmq:
     host: localhost
     port: 5672
-      username: ${SPRING_RABBITMQ_USERNAME:guest}
-      password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
 
   # 本機從 Docker 外部 listener 連 Kafka；容器內由 compose 覆寫成 kafka:9092。
   kafka:

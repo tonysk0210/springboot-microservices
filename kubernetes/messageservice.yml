@@ -22,6 +22,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: messageservice-config
+          env:
+            - name: SPRING_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: microservices-secrets
+                  key: rabbitmq-username
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: microservices-secrets
+                  key: rabbitmq-password
           resources:
             requests:
               cpu: 100m

@@ -1,3 +1,6 @@
+# Kubernetes 不會依本機檔案路徑尋找設定；kubectl 套用後，Pod 會依 metadata.name（例如 account-config）引用 ConfigMap。檔案可放在任意資料夾，
+# 但必須先執行 kubectl apply，且引用者與 ConfigMap 位於同一 namespace。
+
 apiVersion: v1
 kind: ConfigMap
 metadata:

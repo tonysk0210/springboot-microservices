@@ -1,14 +1,7 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: configserver-secrets
-type: Opaque
-stringData:
-  # 僅供本機學習；提交 Git 前必須移除或改回由外部建立 Secret。
-  encrypt-key: "560b5cca941e67b3f6a040f1f9c2744508889f5613131b269ff4d16f6c2a3062"
-
----
-
+# =============================================================================
+# Deployment：對應 compose.yml 的 configserver，負責建立 Config Server Pod。
+# ConfigMap/Secret、Probe 與 resources 分別取代 Compose 的環境、健康檢查與限制。
+# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,7 +9,7 @@ metadata:
   labels:
     app: configserver
 spec:
-  # Config Server 本身不保存業務資料；設定來源在 GitHub，因此 Pod 可安全重建。
+  # Pod 啟動時會從 GitHub 重新下載設定，因此 Pod 重建不會遺失設定。
   replicas: 1
   selector:
     matchLabels:
@@ -28,22 +21,35 @@ spec:
     spec:
       containers:
         - name: configserver
+          # 對應 compose.yml 的 image。
           image: anthonysk/configserver:0.0.1-SNAPSHOT
           imagePullPolicy: IfNotPresent
           ports:
+            # 對應 Compose 的 8071 port。
             - name: http
               containerPort: 8071
-          # 一般環境設定集中由 ConfigMap 管理；機密仍由下方 Secret 提供。
+          # 一般設定由 ConfigMap 提供，機密由共用 Secret 提供。
+          # 設定覆寫順序（簡化）：application.yml < envFrom < env < 啟動參數。
           envFrom:
             - configMapRef:
                 name: configserver-config
           env:
-            # 真實金鑰不放進 YAML / Git，部署前先建立 configserver-secrets。
+            # 從共用 Secret 讀取加密金鑰與 RabbitMQ 憑證。
             - name: ENCRYPT_KEY
               valueFrom:
                 secretKeyRef:
-                  name: configserver-secrets
+                  name: microservices-secrets
                   key: encrypt-key
+            - name: SPRING_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: microservices-secrets
+                  key: rabbitmq-username
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: microservices-secrets
+                  key: rabbitmq-password
           resources:
             requests:
               cpu: 100m
@@ -51,7 +57,8 @@ spec:
             limits:
               cpu: 500m
               memory: 700Mi
-          # clone-on-start 需要先從 GitHub clone 設定 repo，給它較長啟動時間。
+          # 對應 Compose healthcheck；拆成啟動、就緒、存活三種 Probe。
+          # clone-on-start 需先從 GitHub 取得設定，因此給較長啟動時間。
           startupProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -73,16 +80,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+
 
 ---
 
+# =============================================================================
+# Service：對應 Compose 的服務入口，提供叢集內 configserver:8071。
+# =============================================================================
 apiVersion: v1
 kind: Service
 metadata:
@@ -90,8 +94,7 @@ metadata:
   labels:
     app: configserver
 spec:
-  # 學習用：保留叢集內的 http://configserver:8071，並要求建立外部入口。
-  # 實際是否取得外部 IP，取決於本機／雲端 Kubernetes 是否提供 LoadBalancer 實作。
+  # LoadBalancer 也會嘗試提供外部入口；是否取得外部 IP 取決於 Kubernetes 環境。
   type: LoadBalancer
   selector:
     app: configserver
