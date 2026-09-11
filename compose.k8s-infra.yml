@@ -1,0 +1,74 @@
+# =============================================================================
+# Kubernetes 開發用外部依賴。
+#
+# 啟動：
+#   docker compose -f compose.k8s-infra.yml up -d
+#   docker compose -f compose.k8s-infra.yml --profile observability up -d
+#
+# 七個 Spring 應用程式（configserver、eurekaserver、gatewayserver、messageservice、account、loan、card）由 Kubernetes manifest 部署；
+#  本檔只保留它們在本機 Docker Compose 環境所需的基礎設施。
+#
+# 服務定義從 compose.yml 繼承，避免兩份檔案的 image、port、healthcheck、
+# volume 與 Kafka listener 設定逐漸不一致。
+# =============================================================================
+services:
+  rabbitmq:
+    extends:
+      file: compose.yml
+      service: rabbitmq
+
+  mysql:
+    extends:
+      file: compose.yml
+      service: mysql
+
+  redis:
+    extends:
+      file: compose.yml
+      service: redis
+
+  keycloak:
+    extends:
+      file: compose.yml
+      service: keycloak
+
+  kafka:
+    extends:
+      file: compose.yml
+      service: kafka
+
+  # 觀測性服務仍使用原本的 observability profile，不會在預設啟動時執行。
+  loki:
+    extends:
+      file: compose.yml
+      service: loki
+
+  alloy:
+    extends:
+      file: compose.yml
+      service: alloy
+
+  prometheus:
+    extends:
+      file: compose.yml
+      service: prometheus
+
+  grafana:
+    extends:
+      file: compose.yml
+      service: grafana
+
+  tempo:
+    extends:
+      file: compose.yml
+      service: tempo
+
+volumes:
+  mysql-data:
+  kafka-data:
+  rabbitmq-data:
+  keycloak-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+  tempo-data:
