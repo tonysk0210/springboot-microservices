@@ -42,6 +42,17 @@ if ($context -ne 'docker-desktop') {
 }
 Write-Host "  [ok] kubectl context = $context" -ForegroundColor Green
 
+Write-Host '=== 重啟 Alloy ===' -ForegroundColor Cyan
+& kubectl get daemonset/alloy-k8s *> $null
+if ($LASTEXITCODE -ne 0) {
+    throw '找不到 DaemonSet：alloy-k8s；請先執行 deploy-in-order.ps1 或 kubectl apply -f .\observability\alloy-k8s.yml'
+}
+Invoke-Kubectl @('rollout', 'restart', 'daemonset/alloy-k8s')
+Invoke-Kubectl @(
+    'rollout', 'status', 'daemonset/alloy-k8s',
+    "--timeout=$($TimeoutSeconds)s"
+)
+
 Write-Host '=== 重啟 Deployment ===' -ForegroundColor Cyan
 
 foreach ($service in $Services) {
@@ -63,4 +74,3 @@ foreach ($service in $Services) {
 Write-Host '=== Pod 現況 ===' -ForegroundColor Cyan
 Invoke-Kubectl @('get', 'deployments')
 Invoke-Kubectl @('get', 'pods')
-

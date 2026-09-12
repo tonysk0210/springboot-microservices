@@ -72,3 +72,9 @@ volumes:
   prometheus-data:
   grafana-data:
   tempo-data:
+
+# 使用既有 Compose 網路，讓這份「只含基礎設施」的檔案不會嘗試移除正在被其他 Compose 容器使用的網路。
+networks:
+  default:
+    external: true
+    name: springboot-microservices_default

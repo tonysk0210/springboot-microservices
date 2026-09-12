@@ -41,6 +41,14 @@ function Wait-Deployment {
     )
 }
 
+# Alloy 先啟動，才能收集後續服務的啟動 log。
+Apply-Manifest 'observability\alloy-k8s.yml'
+Write-Host '等待 alloy-k8s 就緒...' -ForegroundColor DarkGray
+Invoke-Kubectl @(
+    'rollout', 'status', 'daemonset/alloy-k8s',
+    "--timeout=$($TimeoutSeconds)s"
+)
+
 # 設定資源必須先存在，Pod 才能讀取環境變數。
 Apply-Manifest 'config\secrets.yml'
 Apply-Manifest 'config\configmap.yml'

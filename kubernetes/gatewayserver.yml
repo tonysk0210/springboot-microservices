@@ -47,7 +47,7 @@ kind: Service
 metadata:
   name: gatewayserver
 spec:
-  # 對外唯一入口；account、loan、card 仍維持 ClusterIP。
+  # 對外唯一入口；固定 NodePort 也方便 Compose Prometheus 抓取 K8s 指標。
   type: LoadBalancer
   selector:
     app: gatewayserver
@@ -55,3 +55,4 @@ spec:
     - name: http
       port: 8072
       targetPort: http
+      nodePort: 30072

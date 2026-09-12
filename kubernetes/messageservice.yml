@@ -65,3 +65,4 @@ spec:
     - name: http
       port: 9010
       targetPort: http
+      nodePort: 30010

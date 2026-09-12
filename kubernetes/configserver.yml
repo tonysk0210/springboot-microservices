@@ -103,3 +103,4 @@ spec:
     - name: http
       port: 8071            # Service 的入口／代理 port
       targetPort: http      # Pod／Container 實際接收流量的 port
+      nodePort: 30071      # 讓 Compose Prometheus 可從主機抓取 K8s 指標

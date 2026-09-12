@@ -75,3 +75,4 @@ spec:
     - name: http
       port: 8090
       targetPort: http
+      nodePort: 30090
