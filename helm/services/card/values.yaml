@@ -11,12 +11,13 @@ service:
   type: LoadBalancer
   port: 9000
   targetPort: 9000
+  nodePort: 30000
 
 configMap:
   name: card-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     CONFIGSERVER_HOST: "configserver"
     EUREKA_URL: "http://eurekaserver:8070/eureka/"
     CONFIGSERVER_OPTIONAL_PREFIX: ""
@@ -24,6 +25,9 @@ configMap:
     SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/carddb"
     OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
     MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+secret:
+  name: microservices-secrets
 
 resources:
   requests:

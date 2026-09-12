@@ -3,7 +3,8 @@
     依服務依賴順序部署本機 Kubernetes 環境。
 
 .DESCRIPTION
-    先套用 Secret/ConfigMap，再等待 Config Server 與 Eureka 就緒，
+    先將 Alloy 切換為 kubectl 管理，再套用 Secret/ConfigMap，
+    等待 Config Server 與 Eureka 就緒，
     接著部署業務服務，最後才部署 Gateway。
     image 必須已在 Kubernetes 節點或可從 Registry 下載。
 #>
@@ -41,9 +42,21 @@ function Wait-Deployment {
     )
 }
 
+# kubectl 與 Helm 不能同時管理同一份 Alloy；切換到 kubectl 前先移除 Helm Release。
+if (Get-Command helm -ErrorAction SilentlyContinue) {
+    & helm status alloy-k8s --namespace default *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host '移除 Helm Alloy，切換為 kubectl 管理...' -ForegroundColor DarkGray
+        & helm uninstall alloy-k8s --namespace default
+        if ($LASTEXITCODE -ne 0) {
+            throw '無法移除 Helm Alloy Release。'
+        }
+    }
+}
+
 # Alloy 先啟動，才能收集後續服務的啟動 log。
 Apply-Manifest 'observability\alloy-k8s.yml'
-Write-Host '等待 alloy-k8s 就緒...' -ForegroundColor DarkGray
+Write-Host '等待 kubectl Alloy 就緒...' -ForegroundColor DarkGray
 Invoke-Kubectl @(
     'rollout', 'status', 'daemonset/alloy-k8s',
     "--timeout=$($TimeoutSeconds)s"

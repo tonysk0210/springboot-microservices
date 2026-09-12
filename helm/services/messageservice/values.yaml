@@ -11,16 +11,20 @@ service:
   type: LoadBalancer
   port: 9010
   targetPort: 9010
+  nodePort: 30010
 
 configMap:
   name: messageservice-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     SPRING_RABBITMQ_HOST: "host.docker.internal"
     SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
     OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
     MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+secret:
+  name: microservices-secrets
 
 resources:
   requests:

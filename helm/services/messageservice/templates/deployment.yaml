@@ -22,6 +22,17 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ .Values.configMap.name }}
+          env:
+            - name: SPRING_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: rabbitmq-username
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: rabbitmq-password
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           startupProbe:

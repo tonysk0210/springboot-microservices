@@ -11,12 +11,13 @@ service:
   type: LoadBalancer
   port: 8072
   targetPort: 8072
+  nodePort: 30072
 
 configMap:
   name: gatewayserver-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     CONFIGSERVER_HOST: "configserver"
     EUREKA_URL: "http://eurekaserver:8070/eureka/"
     CONFIGSERVER_OPTIONAL_PREFIX: ""

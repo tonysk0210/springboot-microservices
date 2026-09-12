@@ -11,12 +11,13 @@ service:
   type: LoadBalancer
   port: 8070
   targetPort: 8070
+  nodePort: 30070
 
 configMap:
   name: eurekaserver-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     CONFIGSERVER_HOST: "configserver"
     EUREKA_HOST: "eurekaserver"
     SPRING_RABBITMQ_HOST: "host.docker.internal"

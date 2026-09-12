@@ -11,6 +11,7 @@ service:
   type: LoadBalancer
   port: 8090
   targetPort: 8090
+  nodePort: 30090
 
 configMap:
   name: loan-config
@@ -23,6 +24,9 @@ configMap:
     SPRING_DATASOURCE_URL: "jdbc:mysql://host.docker.internal:3306/loandb"
     OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
     MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+secret:
+  name: microservices-secrets
 
 resources:
   requests:

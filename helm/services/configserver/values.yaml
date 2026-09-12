@@ -11,20 +11,18 @@ service:
   type: LoadBalancer
   port: 8071
   targetPort: 8071
+  nodePort: 30071
 
 configMap:
   name: configserver-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     SPRING_RABBITMQ_HOST: "host.docker.internal"
     MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
 
-# Provide encryptKey only through a local, uncommitted values file when creating this Secret.
 secret:
-  create: false
-  name: configserver-secrets
-  encryptKey: ""
+  name: microservices-secrets
 
 resources:
   requests:

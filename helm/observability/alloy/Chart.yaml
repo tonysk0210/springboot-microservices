@@ -1,0 +1,6 @@
+apiVersion: v2
+name: alloy-k8s
+description: Grafana Alloy DaemonSet for collecting Kubernetes Pod logs
+type: application
+version: 0.1.0
+appVersion: "1.12.0"

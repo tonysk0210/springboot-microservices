@@ -1,0 +1,13 @@
+name: alloy-k8s
+
+image:
+  repository: grafana/alloy
+  tag: v1.12.0
+  pullPolicy: IfNotPresent
+
+config:
+  lokiUrl: http://host.docker.internal:3100/loki/api/v1/push
+  cluster: docker-desktop
+  environment: kubernetes
+
+resources: {}

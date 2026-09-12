@@ -11,12 +11,13 @@ service:
   type: LoadBalancer
   port: 8080
   targetPort: 8080
+  nodePort: 30080
 
 configMap:
   name: account-config
   data:
     HOME: "/tmp"
-    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
     CONFIGSERVER_HOST: "configserver"
     EUREKA_URL: "http://eurekaserver:8070/eureka/"
     KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
@@ -27,6 +28,9 @@ configMap:
     SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
     OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
     MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+secret:
+  name: microservices-secrets
 
 resources:
   requests:
