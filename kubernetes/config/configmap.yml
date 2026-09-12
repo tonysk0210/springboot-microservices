@@ -8,7 +8,7 @@ metadata:
 data:
   # Jib image 使用 nobody 執行；讓 JGit 能在可寫目錄建立快取。
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   # 過渡期由 Kubernetes Pod 連到 Docker Compose 管理的 RabbitMQ。
   # 等 RabbitMQ 搬進叢集並建立 rabbitmq Service 後，再改回 "rabbitmq"。
   SPRING_RABBITMQ_HOST: "host.docker.internal"
@@ -23,7 +23,7 @@ metadata:
   name: eurekaserver-config
 data:
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   CONFIGSERVER_HOST: "configserver"
   EUREKA_HOST: "eurekaserver"
   SPRING_RABBITMQ_HOST: "host.docker.internal"
@@ -37,7 +37,7 @@ metadata:
   name: account-config
 data:
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   CONFIGSERVER_HOST: "configserver"
   EUREKA_URL: "http://eurekaserver:8070/eureka/"
   # 直接 Service 對照路徑：由 Kubernetes Service DNS 導向 Ready Pods。
@@ -77,7 +77,7 @@ metadata:
   name: card-config
 data:
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   CONFIGSERVER_HOST: "configserver"
   EUREKA_URL: "http://eurekaserver:8070/eureka/"
   # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
@@ -95,7 +95,7 @@ metadata:
   name: messageservice-config
 data:
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   SPRING_RABBITMQ_HOST: "host.docker.internal"
   # 連到 Compose Kafka 專門提供給本機 Kubernetes Pod 的 listener。
   SPRING_KAFKA_BOOTSTRAP_SERVERS: "host.docker.internal:39092"
@@ -110,7 +110,7 @@ metadata:
   name: gatewayserver-config
 data:
   HOME: "/tmp"
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -Duser.timezone=Asia/Taipei"
   CONFIGSERVER_HOST: "configserver"
   EUREKA_URL: "http://eurekaserver:8070/eureka/"
   # 空字串移除 application.yaml 的 optional: 前綴，Config Server 不可缺少。
