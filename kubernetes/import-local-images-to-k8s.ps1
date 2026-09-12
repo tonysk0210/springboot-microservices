@@ -13,9 +13,6 @@
 .PARAMETER Force
     忽略快取，強制重新匯入 image。
 
-.PARAMETER NoRestart
-    只匯入 image，不重啟 Deployment；既有 Pod 仍使用舊 image。
-
 .EXAMPLE
     .\import-local-images-to-k8s.ps1 -Services loan
 .EXAMPLE
@@ -32,8 +29,7 @@ param(
     [string] $Prefix = 'anthonysk',
     [string] $Tag = '0.0.1-SNAPSHOT',
 
-    [switch] $Force,
-    [switch] $NoRestart
+    [switch] $Force
 )
 
 # docker/kubectl 的錯誤需透過 $LASTEXITCODE 檢查。
@@ -167,17 +163,6 @@ foreach ($svc in $Services) {
 # ── 寫回快取 ──────────────────────────────────────────────────────────────
 if ($loaded.Count -gt 0) {
     $state | ConvertTo-Json | Set-Content $stateFile -Encoding UTF8
-}
-
-# ── 重啟有更新的 Deployment ───────────────────────────────────────────────
-# 只重啟實際更新 image 的 Deployment。
-if ($loaded.Count -gt 0 -and -not $NoRestart) {
-    Write-Host "`n=== 重啟 Deployment ===" -ForegroundColor Cyan
-    foreach ($svc in $loaded) {
-        $dep = "$svc-deployment"
-        $r = kubectl rollout restart "deployment/$dep" 2>&1
-        if ($LASTEXITCODE -eq 0) { Write-Ok $r } else { Write-Fail "$dep : $r" }
-    }
 }
 
 # ── 摘要 ──────────────────────────────────────────────────────────────────
