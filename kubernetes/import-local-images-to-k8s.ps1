@@ -1,54 +1,32 @@
 <#
 .SYNOPSIS
-    把本機 docker build 出來的 image 灌進 Docker Desktop Kubernetes 節點的 containerd。
+    將本機 image 匯入 Docker Desktop Kubernetes 節點。
 
 .DESCRIPTION
-    ── 為什麼需要這支腳本 ────────────────────────────────────────────────────
-    有「兩個 image 倉庫」，而且互不相通：
-
-        Windows 主機
-        ├── Docker 的倉庫              ← docker build / jib / buildpacks 產出的在這
-        └── desktop-control-plane      ← 這是一個容器，就是 K8s 的節點
-              └── containerd 的倉庫    ← Kubernetes 只看這裡
-
-    新版 Docker Desktop 的 Kubernetes 是 kind 架構，節點有自己的 containerd，
-    「看不到」Docker 的 image。所以 imagePullPolicy: IfNotPresent 找不到東西時
-    會跑去 Docker Hub 拉 —— 於是你在本機改的程式碼根本沒進到 cluster，
-    跑的是「上次 push 到 registry 的版本」。
-
-    這支腳本做的就是把 image 手動搬過去：save → cp → import。
-
-    ⚠ 不要用 PowerShell 的 pipe 傳 tar（docker save … | docker exec -i …）——
-      PowerShell 的 pipeline 會把二進位當文字處理，tar 檔會壞掉。
-      一定要先落地成檔案再 docker cp，這也是本腳本的做法。
+    Docker 與 Kubernetes 節點使用不同的 image 儲存區；本腳本以
+    save → docker cp → containerd import 搬移 image，避免 K8s 改拉舊版 registry image。
+    tar 必須先存成檔案，不能直接用 PowerShell pipeline 傳送二進位資料。
 
 .PARAMETER Services
-    要灌哪些服務。不指定就是全部七個。
+    要處理的服務；預設為全部七個。
 
 .PARAMETER Force
-    忽略「跟上次灌的是同一個 image」的快取判斷，強制重灌。
+    忽略快取，強制重新匯入 image。
 
 .PARAMETER NoRestart
-    只灌 image，不要 kubectl rollout restart。
-    ⚠ 不重啟的話既有的 Pod 還是跑舊 image —— 只有新建的 Pod 才會用到新灌進去的。
+    只匯入 image，不重啟 Deployment；既有 Pod 仍使用舊 image。
 
 .EXAMPLE
-    .\load-images.ps1 -Services loan
-    只處理 loan（例如它卡在 ImagePullBackOff）。
-
+    .\import-local-images-to-k8s.ps1 -Services loan
 .EXAMPLE
-    .\load-images.ps1
-    七個服務全部檢查一遍，只有 image 變過的才實際搬運。
-
-.EXAMPLE
-    .\load-images.ps1 -Services account,loan -Force
+    .\import-local-images-to-k8s.ps1
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('configserver', 'eurekaserver', 'account', 'loan', 'card', 'messageservice', 'gatewayserver')]
     [string[]] $Services = @('configserver', 'eurekaserver', 'account', 'loan', 'card', 'messageservice', 'gatewayserver'),
 
-    # K8s 節點的容器名稱。docker ps 看得到它 —— 節點本身就是一個容器。
+    # Docker Desktop Kubernetes 節點容器名稱。
     [string] $Node = 'desktop-control-plane',
 
     [string] $Prefix = 'anthonysk',
@@ -58,12 +36,10 @@ param(
     [switch] $NoRestart
 )
 
-# ⚠ native exe（docker / kubectl）的失敗不會觸發 PowerShell 的例外，
-#   所以下面一律自己檢查 $LASTEXITCODE，不靠 $ErrorActionPreference。
+# docker/kubectl 的錯誤需透過 $LASTEXITCODE 檢查。
 $ErrorActionPreference = 'Continue'
 
-# 記住「上次灌進去的是哪個 image ID」，下次沒變就跳過。
-# 搬運成本很高（loan 有 1GB，save + cp 要十幾秒），這個快取讓重跑幾乎免費。
+# 記錄上次匯入的 image ID，未變更時跳過搬運。
 $stateFile = Join-Path $PSScriptRoot '.image-load-state.json'
 $tempDir = Join-Path $env:TEMP 'k8s-image-load'
 
@@ -81,12 +57,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# ⚠⚠ 這裡「不能」用 docker ps 檢查 ⚠⚠
-#   Docker Desktop 把 K8s 節點當「系統容器」隱藏起來，docker ps 完全看不到它
-#   （除非在 Settings 裡打開 Show system containers）。
-#   但 docker inspect / docker exec 用名字照樣找得到 —— 所以用 inspect 判斷。
-#   踩過一次：用 docker ps --filter 判斷的話，明明 cluster 好好在跑，
-#   腳本卻回報「Kubernetes 沒開」。
+# Docker Desktop 可能隱藏 Kubernetes 系統容器，使用 inspect 而非 docker ps 檢查。
 $nodeState = docker inspect -f '{{.State.Status}}' $Node 2>&1
 if ($LASTEXITCODE -ne 0 -or $nodeState -ne 'running') {
     Write-Fail "節點容器 '$Node' 不在或沒在跑 —— Docker Desktop 的 Kubernetes 沒開？"
@@ -100,7 +71,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Fail "kubectl 沒有可用的 context"
     exit 1
 }
-# ⚠ 這一行是防呆：腳本會 rollout restart，指到正式環境的 context 就慘了。
+# 腳本會重啟 Deployment，因此只允許 docker-desktop context。
 if ($ctx -ne 'docker-desktop') {
     Write-Fail "當前 kubectl context 是 '$ctx'，不是 docker-desktop —— 為安全起見中止"
     Write-Step "要切回來：kubectl config use-context docker-desktop"
@@ -131,7 +102,7 @@ foreach ($svc in $Services) {
     $image = "$Prefix/${svc}:$Tag"
     Write-Host "`n=== $svc ===" -ForegroundColor Cyan
 
-    # ① 本機有沒有這個 image
+    # ① 確認本機 image 存在。
     $localId = docker image inspect $image --format '{{.Id}}' 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "本機沒有 $image —— 還沒 build？"
@@ -140,7 +111,7 @@ foreach ($svc in $Services) {
     }
     $shortId = $localId.Substring(7, 12)
 
-    # ② 跟上次灌的一樣就跳過
+    # ② image 未變更則跳過。
     if (-not $Force -and $state[$svc] -eq $localId) {
         Write-Skip "$image ($shortId) 跟上次灌的相同"
         $skipped += $svc
@@ -151,44 +122,31 @@ foreach ($svc in $Services) {
     $tar = Join-Path $tempDir "$svc.tar"
 
     try {
-        # ③ 打包
+        # ③ 匯出 image。
         Write-Step "docker save …"
         docker save $image -o $tar 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "docker save 失敗" }
         $mb = [math]::Round((Get-Item $tar).Length / 1MB)
 
-        # ④ 搬進節點容器（節點就是個容器，所以 docker cp 就行）
-        #
-        # ⚠⚠ 目標路徑「不能」用 /tmp ⚠⚠
-        #   kind 的節點跑 systemd，開機後會把 /tmp 掛成 tmpfs。docker cp 寫的是
-        #   容器 rootfs 上的 /tmp，位置在那個 tmpfs「底下」——容器裡的行程看不到。
-        #   症狀：docker cp 回報成功，下一行 ctr 卻說
-        #        ctr: open /tmp/loan.tar: no such file or directory
-        #   所以放在根目錄（不是任何掛載點）最保險。
+        # ④ 複製到 Kubernetes 節點容器；暫存檔放在根目錄，避免 /tmp 掛載問題。
         $remoteTar = "/$svc.tar"
         Write-Step "docker cp ($mb MB) …"
         docker cp $tar "${Node}:$remoteTar" 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "docker cp 失敗" }
 
-        # ⑤ 匯入 containerd
-        # ⚠ -n k8s.io 不能省 —— containerd 有多個 namespace，Kubernetes 只認這個。
-        #   匯到別的 namespace 會「成功但 K8s 看不到」，最難查的那種錯。
+        # ⑤ 匯入 Kubernetes 使用的 containerd namespace。
         Write-Step "ctr images import …"
         $out = docker exec $Node ctr -n k8s.io images import $remoteTar 2>&1
         if ($LASTEXITCODE -ne 0) { throw "ctr import 失敗: $out" }
 
-        # ⑥ 確保「正規化後的名字」存在。
-        # ⚠ docker save 的 tar 裡記的是 anthonysk/xxx:tag（沒有 registry 前綴），
-        #   但 kubelet 找的是正規化後的 docker.io/anthonysk/xxx:tag。
-        #   containerd 若照原樣登記，kubelet 就配不到 → 又跑去 Docker Hub 拉。
-        #   多補一個 tag 是無害的保險（已存在時 ctr 會報錯，直接忽略）。
+        # ⑥ 補上 kubelet 使用的完整 image 名稱（docker.io/...）。
         $canonical = "docker.io/$Prefix/${svc}:$Tag"
         docker exec $Node ctr -n k8s.io images tag $image $canonical 2>&1 | Out-Null
 
-        # ⑦ 清掉節點裡的暫存 tar（不刪會一直佔著節點的磁碟）
+        # ⑦ 清除節點暫存檔。
         docker exec $Node rm -f $remoteTar 2>&1 | Out-Null
 
-        # ⑧ 驗證 K8s 真的看得到了（crictl 看的就是 kubelet 用的那份清單）
+        # ⑧ 確認 containerd 已被 Kubernetes 看見。
         $seen = docker exec $Node crictl images 2>&1 | Select-String -Pattern "/$Prefix/$svc\s"
         if (-not $seen) { throw "匯入後 crictl 仍看不到 $svc —— 名稱可能沒對上" }
 
@@ -212,7 +170,7 @@ if ($loaded.Count -gt 0) {
 }
 
 # ── 重啟有更新的 Deployment ───────────────────────────────────────────────
-# 🔑 只重啟「真的換了 image」的，沒變的不動 —— 免得每次跑腳本都把整套服務洗一遍。
+# 只重啟實際更新 image 的 Deployment。
 if ($loaded.Count -gt 0 -and -not $NoRestart) {
     Write-Host "`n=== 重啟 Deployment ===" -ForegroundColor Cyan
     foreach ($svc in $loaded) {

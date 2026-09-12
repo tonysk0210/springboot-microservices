@@ -23,6 +23,7 @@ spec:
         - name: configserver
           # 對應 compose.yml 的 image。
           image: anthonysk/configserver:0.0.1-SNAPSHOT
+          # 如果 Kubernetes 節點已經有這個 image → 直接使用；如果沒有 → 從 Docker Hub／Registry 下載
           imagePullPolicy: IfNotPresent
           ports:
             # 對應 Compose 的 8071 port。
@@ -100,5 +101,5 @@ spec:
     app: configserver
   ports:
     - name: http
-      port: 8071
-      targetPort: http
+      port: 8071            # Service 的入口／代理 port
+      targetPort: http      # Pod／Container 實際接收流量的 port
