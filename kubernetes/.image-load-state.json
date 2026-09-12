@@ -1,7 +1,9 @@
 {
-  "loan": "sha256:2cf1c14ae74d71d4ee82a1258e076b301c16e74662c238bd7b10bafe2982740a",
-  "gatewayserver": "sha256:67393fb8dd2542532effe94b8fca9ae6ea052cbac2584e2d92b32b6cdb66b7e5",
-  "account": "sha256:32925c5dbd38b571cd99bb2ff982d6b9b9fecda9b8a1e5a5b5b06acd71d17bc3",
-  "card": "sha256:f66777df0d793d5cbfa4edca53901d8256f55d5429fea13278afe5f71120417a"
+  "gatewayserver": "sha256:dbc47f8f680cd4e4e1a61008d2b0e9c0ce233e81fc1669785e375014b25168bf",
+  "eurekaserver": "sha256:50169d4ab20c0055c0e90713a69de2112d17652beeb5c591e0cc79e8b6cdb26a",
+  "messageservice": "sha256:9639739c786df3234514a6a15dd7f7d2edce8d3e66be890283d8ba989b0c50e5",
+  "loan": "sha256:94443a3ad82fa83aae885924075070c6ad3b5bd8dd3c42ce9ed41bdad243b65f",
+  "configserver": "sha256:e29ca335cc5ad4e60385c4b5999e2fac1cf62d476e9aac05d16e3a7dbe5ad460",
+  "card": "sha256:797a0c9365f828f767d6442d67fb7ec320f1fd106b4b6b7d6fb8bc8e2caf3ca0",
+  "account": "sha256:e84a98a0d178a59d462baf1e4b243398480a74f28265bdce19c466892ca7cc7d"
 }
-
