@@ -23,7 +23,7 @@ public class RouteConfig {
     @Bean
     public RouteLocator bankRouteConfig(
             RouteLocatorBuilder builder,
-            @Value("${ACCOUNT_DIRECT_BASE_URL:http://localhost:8080}") String accountDirectBaseUrl) {
+            @Value("${downstream.account.base-url:http://localhost:8080}") String accountServiceBaseUrl) {
         return builder.routes()
 
                 /* -----------------------------------------------------------------
@@ -106,7 +106,7 @@ public class RouteConfig {
                         .filters(f -> f
                                 .rewritePath("/k8s/account/(?<segment>.*)", "/${segment}")
                                 .addResponseHeader("X-Gateway-Discovery-Mode", "service-dns"))
-                        .uri(accountDirectBaseUrl)) // 直接使用服務 DNS 找 account，不經 Eureka。
+                        .uri(accountServiceBaseUrl)) // 直接使用服務 DNS 找 account，不經 Eureka。
 
                 .build();
     }

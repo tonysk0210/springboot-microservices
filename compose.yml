@@ -54,8 +54,8 @@ services:
     environment:
       SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/accountdb"
       # loan、card 是 compose.yml 的 service 名稱，也是 Compose network 內的 DNS 名稱；直接透過它們呼叫下游服務，不使用 Eureka。
-      KUBERNETES_LOAN_BASE_URL: "http://loan:8090"
-      KUBERNETES_CARD_BASE_URL: "http://card:9000"
+      DOWNSTREAM_LOAN_BASE_URL: "http://loan:8090"
+      DOWNSTREAM_CARD_BASE_URL: "http://card:9000"
       # 容器使用 kafka:9092；本機程式使用 localhost:29092。
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
 
@@ -272,7 +272,7 @@ services:
       # 容器內 Redis 的服務名稱；供 Gateway 限流使用。
       SPRING_DATA_REDIS_HOST: redis
       # Compose 以服務 DNS 直接呼叫 account，不經 Eureka。
-      ACCOUNT_DIRECT_BASE_URL: http://account:8080
+      DOWNSTREAM_ACCOUNT_BASE_URL: http://account:8080
       # 容器環境啟用 OAuth2；呼叫 /bank/** 必須帶 Bearer token。
       SPRING_PROFILES_ACTIVE: auth
       # 容器內使用 Keycloak 服務名稱，不能使用容器自己的 localhost。

@@ -10,14 +10,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 /**
  * 直接呼叫 card Service，不透過 Eureka 尋找實例。
- * Compose／Kubernetes 由環境變數提供 {@code http://card:9000}；
+ * Compose／Kubernetes 由 {@code downstream.card.base-url} 提供 {@code http://card:9000}；
  * IntelliJ 未設定時使用預設的 {@code http://localhost:9000}。
  * 因此 Eureka 未啟動時仍可呼叫（不走 Eureka），但 card Service 必須可連線；失敗時由 fallback 回傳 null。不影響 Account 聚合查詢的完成。
  */
 @FeignClient(
         name = "cardKubernetes",
         contextId = "kubernetesCardFeignClient",
-        url = "${kubernetes.card.base-url:http://localhost:9000}",
+        url = "${downstream.card.base-url:http://localhost:9000}",
         fallback = KubernetesCardFallback.class
 )
 public interface KubernetesCardFeignClient {
