@@ -5,5 +5,5 @@
   "configserver": "sha256:906bdb3781cf6c2e682dc8100ef5299325bbbc48a4b60068c31f6914aadcc587",
   "card": "sha256:1aaa959880f26f0cf9c7e05dc6b80e4b3066fac99af1f2c6cdaffffeb5cb66cb",
   "account": "sha256:e0b4704f85bf6e72d7cfa60f9fecf635c89e22e6ff0d994e20ba6411784a561f",
-  "gatewayserver": "sha256:849dcfff91ca39d82c89a74704784d3ea96d8bb69a9a99f23fc3efb0f76746bd"
+  "gatewayserver": "sha256:a0cf9a34d89c77ff3a9f8b6c3fc787f24dcb2161098ba673399dfb83384f770c"
 }

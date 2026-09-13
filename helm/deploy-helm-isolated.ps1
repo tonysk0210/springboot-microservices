@@ -86,15 +86,35 @@ Write-Host '=== 以 Helm 部署 Alloy（default Namespace） ===' -ForegroundCol
 & helm status alloy-k8s --namespace default *> $null
 $alloyReleaseExists = ($LASTEXITCODE -eq 0)
 if (-not $alloyReleaseExists) {
-    & kubectl get daemonset/alloy-k8s --namespace default *> $null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host '移除舊的 kubectl Alloy 資源...' -ForegroundColor DarkGray
-        Invoke-Checked 'kubectl' @('delete', '-f', $legacyAlloy, '--ignore-not-found')
-    }
+    # 不只檢查 DaemonSet；即使只殘留 ServiceAccount、RBAC 或 ConfigMap，
+    # 也必須先清除，否則 Helm 會因缺少 ownership metadata 而拒絕接管。
+    Write-Host '移除舊的 kubectl Alloy 資源...' -ForegroundColor DarkGray
+    Invoke-Checked 'kubectl' @('delete', '-f', $legacyAlloy, '--ignore-not-found')
 }
 
 Invoke-Checked 'helm' @(
     'upgrade', '--install', 'alloy-k8s', $alloyChart,
+    '--namespace', 'default',
+    '--create-namespace',
+    '--wait',
+    "--timeout=$($TimeoutSeconds)s"
+)
+
+# Discovery Demo 固定部署在 default，使用 ClusterRole 查詢所有 namespace。
+$discoveryChart = Join-Path $PSScriptRoot 'services\discoveryserver'
+$discoveryManifest = Join-Path $PSScriptRoot '..\kubernetes\discoveryserver.yml'
+Write-Host ''
+Write-Host '以 Helm 部署 Kubernetes Discovery Server（default Namespace）' -ForegroundColor Cyan
+
+# 若先前由 kubectl 建立，先清理 ownership metadata，再交給 Helm 管理。
+& helm status discoveryserver --namespace default *> $null
+if ($LASTEXITCODE -ne 0) {
+    Invoke-Checked 'kubectl' @('delete', '-f', $discoveryManifest, '--ignore-not-found')
+}
+
+Invoke-Checked 'helm' @(
+    'upgrade', '--install', 'discoveryserver', $discoveryChart,
+    '--reset-values',
     '--namespace', 'default',
     '--create-namespace',
     '--wait',

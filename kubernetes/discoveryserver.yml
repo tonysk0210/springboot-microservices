@@ -1,0 +1,92 @@
+# Spring Cloud Kubernetes Discovery Server：查詢 Kubernetes 內的服務與實例清單。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spring-cloud-kubernetes-discoveryserver
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spring-cloud-kubernetes-discoveryserver
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spring-cloud-kubernetes-discoveryserver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spring-cloud-kubernetes-discoveryserver
+subjects:
+  - kind: ServiceAccount
+    name: spring-cloud-kubernetes-discoveryserver
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-cloud-kubernetes-discoveryserver-deployment
+  namespace: default
+  labels:
+    app: spring-cloud-kubernetes-discoveryserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-cloud-kubernetes-discoveryserver
+  template:
+    metadata:
+      labels:
+        app: spring-cloud-kubernetes-discoveryserver
+    spec:
+      serviceAccountName: spring-cloud-kubernetes-discoveryserver
+      containers:
+        - name: spring-cloud-kubernetes-discoveryserver
+          image: springcloud/spring-cloud-kubernetes-discoveryserver:3.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8761
+          env:
+            - name: SPRING_CLOUD_KUBERNETES_DISCOVERY_ALL_NAMESPACES
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-cloud-kubernetes-discoveryserver
+  namespace: default
+  labels:
+    app: spring-cloud-kubernetes-discoveryserver
+spec:
+  type: ClusterIP
+  selector:
+    app: spring-cloud-kubernetes-discoveryserver
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

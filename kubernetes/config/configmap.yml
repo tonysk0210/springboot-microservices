@@ -119,6 +119,8 @@ data:
   SPRING_DATA_REDIS_HOST: "host.docker.internal"
   # Kubernetes 內透過 account Service DNS 直接呼叫 Account。
   DOWNSTREAM_ACCOUNT_BASE_URL: "http://account:8080"
+  # Discovery Demo：Gateway 查詢 default 中的 Kubernetes Discovery Server。
+  K8S_DISCOVERY_SERVER_URL: "http://spring-cloud-kubernetes-discoveryserver.default.svc.cluster.local:80"
   SPRING_PROFILES_ACTIVE: "auth"
   KEYCLOAK_JWK_SET_URI: "http://host.docker.internal:7080/realms/master/protocol/openid-connect/certs"
   OTLP_TRACING_ENDPOINT: "http://host.docker.internal:4318/v1/traces"

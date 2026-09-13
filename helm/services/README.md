@@ -1,8 +1,8 @@
 # 微服務 Helm Charts
 
 每個服務的 Chart 都管理自己的 ConfigMap、Deployment 與 Service。
-目前微服務部署在 `helm-test` namespace；Alloy 是 Cluster 範圍的
-DaemonSet，由獨立 Chart 部署在 `default` namespace。
+目前微服務部署在 `helm-test` namespace；Alloy 與 Kubernetes Discovery Server
+是 Cluster／基礎設施元件，由獨立 Chart 部署在 `default` namespace。
 
 ## 建議部署方式
 
@@ -18,7 +18,8 @@ docker compose -f compose.k8s-infra.yml --profile observability up -d
 腳本會依序部署：
 
 ```text
-configserver → eurekaserver → account → loan → card → messageservice → gatewayserver
+Alloy → Kubernetes Discovery Server → configserver → eurekaserver
+→ account → loan → card → messageservice → gatewayserver
 ```
 
 並以 `--wait` 等待每個 Helm Release 就緒。
@@ -36,6 +37,13 @@ Alloy：
 
 ```powershell
 helm upgrade --install alloy-k8s .\helm\observability\alloy --namespace default --wait --timeout 3m
+```
+
+Kubernetes Discovery Server（查詢所有 namespace 的 Service／Endpoint／Pod）：
+
+```powershell
+helm upgrade --install discoveryserver .\helm\services\discoveryserver `
+  --reset-values --namespace default --create-namespace --wait --timeout 3m
 ```
 
 微服務（使用各 Chart 內設定的 Service port 與固定 NodePort）：
@@ -58,6 +66,8 @@ helm upgrade --install gatewayserver .\helm\services\gatewayserver --reset-value
 - 共用機密來自 `kubernetes/config/secrets.yml`，以 `microservices-secrets` 注入 Pod。
 - ConfigMap 由各 Chart 的 `values.yaml` 與 `templates/configmap.yaml` 建立，
   不會讀取 `kubernetes/config/configmap.yml`。
+- Gateway 的 `/k8s-discovery/apps` 與 `/k8s-discovery/apps/{serviceName}`
+  會查詢 Kubernetes Discovery Server；Compose 環境未啟動該 Server 時此功能不可用。
 - 檢查 Release：`helm ls -A`。
 - 檢查資源：`kubectl get pods -n helm-test`、`kubectl get services -n helm-test`。
 - 查看日誌：`kubectl logs -n helm-test deployment/account-deployment`。

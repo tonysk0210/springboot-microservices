@@ -62,6 +62,20 @@ Invoke-Kubectl @(
     "--timeout=$($TimeoutSeconds)s"
 )
 
+# 切回 kubectl 管理前，先移除可能存在的 Helm Discovery Server Release。
+if (Get-Command helm -ErrorAction SilentlyContinue) {
+    & helm status discoveryserver --namespace default *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host '移除 Helm Discovery Server，切換為 kubectl 管理...' -ForegroundColor DarkGray
+        & helm uninstall discoveryserver --namespace default
+        if ($LASTEXITCODE -ne 0) { throw '無法移除 Helm Discovery Server Release。' }
+    }
+}
+
+# Discovery Demo：由 Kubernetes API 提供跨 namespace 的服務清單。
+Apply-Manifest 'discoveryserver.yml'
+Wait-Deployment 'spring-cloud-kubernetes-discoveryserver-deployment'
+
 # 設定資源必須先存在，Pod 才能讀取環境變數。
 Apply-Manifest 'config\secrets.yml'
 Apply-Manifest 'config\configmap.yml'
