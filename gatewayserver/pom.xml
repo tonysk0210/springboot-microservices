@@ -28,7 +28,6 @@
     </scm>
     <properties>
         <java.version>25</java.version>
-        <spring-cloud.version>2025.1.2</spring-cloud.version>
     </properties>
     <dependencies>
         <dependency>
@@ -45,7 +44,6 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
-            <version>3.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -123,9 +121,9 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
+                <groupId>com.example</groupId>
+                <artifactId>microservices-bom</artifactId>
+                <version>0.0.1-SNAPSHOT</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

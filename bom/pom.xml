@@ -2,17 +2,13 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.1</version>
-        <relativePath/> <!-- lookup parent from repository -->
-    </parent>
     <groupId>com.example</groupId>
-    <artifactId>bom</artifactId>
+    <artifactId>microservices-bom</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>bom</name>
-    <description>bom</description>
+    <!-- 純 BOM 專案：只輸出 Maven 版本管理設定，不編譯程式或產生 JAR。 -->
+    <packaging>pom</packaging>
+    <name>microservices-bom</name>
+    <description>Shared dependency versions for the microservices</description>
     <url/>
     <licenses>
         <license/>
@@ -26,29 +22,35 @@
         <tag/>
         <url/>
     </scm>
+    <!-- 只集中定義版本變數；實際套用由下方 dependencyManagement 引用。 -->
     <properties>
-        <java.version>25</java.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <springdoc.version>3.1.0</springdoc.version>
     </properties>
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-        </dependency>
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <!-- 匯入 Spring Cloud 官方 BOM：像匯入整本版本目錄，一次管理多個 Cloud 套件。 -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
+            <!-- 單一套件版本：像只替一本商品指定版本；各服務使用時不必重複寫 version。 -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
 </project>

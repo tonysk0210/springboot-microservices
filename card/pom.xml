@@ -29,10 +29,6 @@
     </scm>
     <properties>
         <java.version>25</java.version>
-        <!-- Spring Cloud 發行列車版本（年份.次版.修訂，非語意化版本），給下方 BOM 用。
-             ⚠ 必須與 Spring Boot 4.1.0 相容。配錯只會在啟動時噴 NoSuchMethodError，
-               不會有明確的版本錯誤訊息。對照表 https://spring.io/projects/spring-cloud -->
-        <spring-cloud.version>2025.1.2</spring-cloud.version>
     </properties>
     <dependencies>
         <!-- MySQL 的 JDBC driver。版本由 Boot 的 BOM 管，不用寫。
@@ -64,7 +60,6 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>3.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -148,9 +143,9 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.springframework.cloud</groupId>
-                <artifactId>spring-cloud-dependencies</artifactId>
-                <version>${spring-cloud.version}</version>
+                <groupId>com.example</groupId>
+                <artifactId>microservices-bom</artifactId>
+                <version>0.0.1-SNAPSHOT</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
