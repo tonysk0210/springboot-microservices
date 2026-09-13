@@ -12,7 +12,7 @@
 docker compose -f compose.k8s-infra.yml --profile observability up -d
 .\build-images.ps1
 .\kubernetes\import-local-images-to-k8s.ps1
-.\helm\deploy-helm-isolated.ps1
+.\helm\deploy-helm-in-order.ps1
 ```
 
 腳本會依序部署：

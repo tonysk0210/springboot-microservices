@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     1. 檢查 kubectl、Helm 與 docker-desktop context。
-    2. 在 default Namespace 由 Helm 管理 Alloy DaemonSet。
+    2. 在指定 Namespace 由 Helm 管理 Alloy DaemonSet 與 Discovery Server。
     3. 將共用 Secret 複製到指定 Namespace（預設 helm-test）。
     4. 依序部署七個微服務 Chart，沿用固定 Service port 與 NodePort。
     5. 顯示 Release、Deployment、Pod 與 Service 狀態。
@@ -13,16 +13,16 @@
 
 .EXAMPLE
     # 從專案根目錄執行
-    .\helm\deploy-helm-isolated.ps1
+    .\helm\deploy-helm-in-order.ps1
 
 .EXAMPLE
     # 從 helm 目錄執行
     cd .\helm
-    .\deploy-helm-isolated.ps1
+    .\deploy-helm-in-order.ps1
 
 .EXAMPLE
     # 指定測試 Namespace 與等待時間（單位：秒）
-    .\helm\deploy-helm-isolated.ps1 -Namespace helm-test-2 -TimeoutSeconds 600
+    .\helm\deploy-helm-in-order.ps1 -Namespace helm-test-2 -TimeoutSeconds 600
 
 .EXAMPLE
     # 完整執行流程（從專案根目錄）
@@ -30,7 +30,7 @@
     docker compose -f compose.k8s-infra.yml --profile observability up -d
     .\build-images.ps1
     .\kubernetes\import-local-images-to-k8s.ps1
-    .\helm\deploy-helm-isolated.ps1
+    .\helm\deploy-helm-in-order.ps1
 #>
 [CmdletBinding()]
 param(
@@ -77,13 +77,22 @@ $charts = @(
     'gatewayserver'
 )
 
-# Alloy 只保留一份：若尚未由 Helm 管理，先清理舊 kubectl 資源。
+# Alloy 只保留一份：若尚未由 Helm 管理，先清理舊 kubectl／default Helm 資源。
 $alloyChart = Join-Path $PSScriptRoot 'observability\alloy'
 $legacyAlloy = Join-Path $PSScriptRoot '..\kubernetes\observability\alloy-k8s.yml'
 Write-Host ''
-Write-Host '=== 以 Helm 部署 Alloy（default Namespace） ===' -ForegroundColor Cyan
+Write-Host "=== 以 Helm 部署 Alloy（$Namespace Namespace） ===" -ForegroundColor Cyan
 
-& helm status alloy-k8s --namespace default *> $null
+if ($Namespace -ne 'default') {
+    # ClusterRole／ClusterRoleBinding 是叢集層級資源；先移除舊的 default Release，避免名稱衝突。
+    & helm status alloy-k8s --namespace default *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host '移除 default Namespace 的舊 Alloy Helm Release...' -ForegroundColor DarkGray
+        Invoke-Checked 'helm' @('uninstall', 'alloy-k8s', '--namespace', 'default')
+    }
+}
+
+& helm status alloy-k8s --namespace $Namespace *> $null
 $alloyReleaseExists = ($LASTEXITCODE -eq 0)
 if (-not $alloyReleaseExists) {
     # 不只檢查 DaemonSet；即使只殘留 ServiceAccount、RBAC 或 ConfigMap，
@@ -94,20 +103,29 @@ if (-not $alloyReleaseExists) {
 
 Invoke-Checked 'helm' @(
     'upgrade', '--install', 'alloy-k8s', $alloyChart,
-    '--namespace', 'default',
+    '--namespace', $Namespace,
     '--create-namespace',
     '--wait',
     "--timeout=$($TimeoutSeconds)s"
 )
 
-# Discovery Demo 固定部署在 default，使用 ClusterRole 查詢所有 namespace。
+# Discovery Server 與微服務放在同一個 Namespace，使用 ClusterRole 查詢所有 namespace。
 $discoveryChart = Join-Path $PSScriptRoot 'services\discoveryserver'
 $discoveryManifest = Join-Path $PSScriptRoot '..\kubernetes\discoveryserver.yml'
 Write-Host ''
-Write-Host '以 Helm 部署 Kubernetes Discovery Server（default Namespace）' -ForegroundColor Cyan
+Write-Host "以 Helm 部署 Kubernetes Discovery Server（$Namespace Namespace）" -ForegroundColor Cyan
 
 # 若先前由 kubectl 建立，先清理 ownership metadata，再交給 Helm 管理。
-& helm status discoveryserver --namespace default *> $null
+if ($Namespace -ne 'default') {
+    # 舊的 kubectl manifest 與 default Helm Release 都使用叢集層級 RBAC 名稱，需先清理。
+    & helm status discoveryserver --namespace default *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host '移除 default Namespace 的舊 Discovery Server Helm Release...' -ForegroundColor DarkGray
+        Invoke-Checked 'helm' @('uninstall', 'discoveryserver', '--namespace', 'default')
+    }
+}
+
+& helm status discoveryserver --namespace $Namespace *> $null
 if ($LASTEXITCODE -ne 0) {
     Invoke-Checked 'kubectl' @('delete', '-f', $discoveryManifest, '--ignore-not-found')
 }
@@ -115,7 +133,7 @@ if ($LASTEXITCODE -ne 0) {
 Invoke-Checked 'helm' @(
     'upgrade', '--install', 'discoveryserver', $discoveryChart,
     '--reset-values',
-    '--namespace', 'default',
+    '--namespace', $Namespace,
     '--create-namespace',
     '--wait',
     "--timeout=$($TimeoutSeconds)s"
@@ -141,7 +159,7 @@ foreach ($chart in $charts) {
     Write-Host ''
     Write-Host "部署 $chart（沿用 Kubernetes Service port 與固定 NodePort）" -ForegroundColor Cyan
 
-    Invoke-Checked 'helm' @(
+    $helmArguments = @(
         'upgrade', '--install', $chart, $chartPath,
         '--namespace', $Namespace,
         '--create-namespace',
@@ -150,6 +168,14 @@ foreach ($chart in $charts) {
         '--wait',
         "--timeout=$($TimeoutSeconds)s"
     )
+
+    if ($chart -eq 'gatewayserver') {
+        # Gateway 與 Discovery Server 同 namespace，使用該 namespace 的 Service DNS。
+        $discoveryUrl = "http://spring-cloud-kubernetes-discoveryserver.$Namespace.svc.cluster.local:80"
+        $helmArguments += @('--set-string', "configMap.data.K8S_DISCOVERY_SERVER_URL=$discoveryUrl")
+    }
+
+    Invoke-Checked 'helm' $helmArguments
 }
 
 Write-Host ''
