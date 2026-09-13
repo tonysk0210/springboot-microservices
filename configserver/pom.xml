@@ -2,11 +2,12 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <!-- 繼承共用 Parent：統一取得 Spring Boot、依賴版本與 Jib plugin 設定。 -->
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <groupId>com.example</groupId>
+        <artifactId>microservices-bom</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../microservices-bom/pom.xml</relativePath>
     </parent>
     <groupId>com.example</groupId>
     <artifactId>configserver</artifactId>
@@ -92,7 +93,6 @@
             <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
-                <version>3.5.2</version>
                 <configuration>
                     <from>
                         <!-- 使用與其他服務相同的 Java／Alpine 基底；docker:// 代表使用本機 image。

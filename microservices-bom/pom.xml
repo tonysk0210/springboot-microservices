@@ -2,6 +2,13 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <!-- 共用 Parent 繼承 Spring Boot 的預設建置設定。 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/>
+    </parent>
     <groupId>com.example</groupId>
     <artifactId>microservices-bom</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -24,8 +31,11 @@
     </scm>
     <!-- 只集中定義版本變數；實際套用由下方 dependencyManagement 引用。 -->
     <properties>
+        <java.version>25</java.version>
         <spring-cloud.version>2025.1.2</spring-cloud.version>
         <springdoc.version>3.1.0</springdoc.version>
+        <!-- 所有使用 Jib 的服務共用同一版本。 -->
+        <jib.version>3.5.2</jib.version>
     </properties>
 
     <!-- 匯入 Spring Cloud 官方 BOM：像匯入整本版本目錄，一次管理多個 Cloud 套件。 -->
@@ -52,5 +62,18 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <!-- pluginManagement 可由繼承此 Parent 的服務共用；BOM import 無法傳遞這段設定。 -->
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>com.google.cloud.tools</groupId>
+                    <artifactId>jib-maven-plugin</artifactId>
+                    <version>${jib.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
 
 </project>
