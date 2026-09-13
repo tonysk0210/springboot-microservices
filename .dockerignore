@@ -1,0 +1,6 @@
+# Account 使用專案根目錄作為 Docker build context；只保留建置需要的兩個目錄。
+**
+!account/
+!account/**
+!microservices-bom/
+!microservices-bom/**

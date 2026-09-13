@@ -18,7 +18,7 @@
 #
 # 個別建置七個自建服務 image（PowerShell）：
 # Account 使用專案內的 Dockerfile（會在 image 內編譯並打包）：
-# `docker build -t anthonysk/account:0.0.1-SNAPSHOT .\account`
+# `docker build -f account/Dockerfile -t anthonysk/account:0.0.1-SNAPSHOT .`
 # Loan 使用 Spring Boot Buildpacks：
 # 只建立本機 image：
 # `cd loan; .\mvnw.cmd spring-boot:build-image "-Dmaven.test.skip=true"`

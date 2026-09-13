@@ -70,9 +70,11 @@ foreach ($service in $Services) {
     Push-Location $serviceDir
     try {
         if ($service -eq 'account') {
-            $description = "docker build -t $image ."
+            # Account 的 Parent 在 microservices-bom；使用專案根目錄作為 context，
+            # Docker build 才能同時複製 account 與 microservices-bom。
+            $description = "docker build -f account/Dockerfile -t $image ."
             if ($PSCmdlet.ShouldProcess($service, $description)) {
-                & docker build -t $image .
+                & docker build -f (Join-Path $serviceDir 'Dockerfile') -t $image $PSScriptRoot
                 if ($LASTEXITCODE -ne 0) { throw "Dockerfile 建置失敗" }
             }
         }

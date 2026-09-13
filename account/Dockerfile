@@ -1,6 +1,6 @@
 # Dockerfile 是建立 image 的步驟說明。
 # 使用兩階段建置：第一階段編譯，第二階段只保留執行所需檔案。
-# 建置：docker build -t anthonysk/account:0.0.1-SNAPSHOT .
+# 建置：docker build -f account/Dockerfile -t anthonysk/account:0.0.1-SNAPSHOT .
 # 若要推送 Docker Hub，anthonysk 必須是你的 Docker Hub username，或是你有權限的 namespace。
 # 執行：docker compose up -d account
 
@@ -9,15 +9,17 @@ FROM eclipse-temurin:25-jdk-alpine AS builder
 WORKDIR /build
 
 # 先複製 Maven 設定，讓依賴下載層可以重複使用快取。
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
+# 使用專案根目錄作為 build context，才能同時取得共用 Parent BOM。
+COPY account/.mvn/ .mvn/
+COPY account/mvnw account/pom.xml ./
+COPY microservices-bom/ /microservices-bom/
 
 # Windows 檔案在 Linux 中可能沒有執行權限，因此先 chmod。
 # -B 讓 Maven log 保持非互動格式。
 RUN chmod +x mvnw && ./mvnw -B dependency:go-offline
 
 # 建置 image 時略過測試；測試可交由 CI 執行。
-COPY src/ src/
+COPY account/src/ src/
 RUN ./mvnw -B clean package -DskipTests
 
 # 將 jar 拆成依賴與應用程式層，減少程式修改時的 image 傳輸量。
