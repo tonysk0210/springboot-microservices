@@ -154,12 +154,9 @@ flowchart TB
     ACC & LOAN & CARD & GW -."metrics / span / log".-> Obs
     PROM & LOKI & TEMPO --> GRAF
 
-    %% 灰色虛線 = 控制面流量（取 token、驗證公鑰、啟動取設定、註冊、觀測性上報）
-    %% 只靠線型會被交錯的實線蓋住，所以額外上色區分
-    %% 注意：linkStyle 用的是「邊的宣告順序索引」，上面新增或刪除任何一條邊都要重算
-    linkStyle 1,2 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
-    linkStyle 14,15,16,17,19,20,21,22 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
-    linkStyle 29,30,31,32 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
+    %% 線型一律由語法決定：--> 實線＝業務請求路徑，-.-> 虛線＝控制面
+    %% 刻意不使用 linkStyle：它按「邊的宣告順序索引」上色，不同 mermaid 版本算出的
+    %% 索引不一致，會變成只有部分虛線被套到樣式，反而更難辨識
 ```
 
 > **圖例**：**實線**＝一筆業務請求實際走過的路徑（Client → Gateway → 各服務 → MySQL／MQ）；
