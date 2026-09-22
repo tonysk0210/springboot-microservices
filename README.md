@@ -132,8 +132,8 @@ flowchart TB
     end
 
     Client -->|Bearer JWT| GW
-    Client -.取得 token.-> KC
-    GW -.驗證公鑰.-> KC
+    Client authToken@-.取得 token.-> KC
+    GW authJwk@-.驗證公鑰.-> KC
     GW --> Redis
     GW -->|lb:// 經 Eureka| ACC & LOAN & CARD
     GW -->|/k8s/** Service DNS| ACC
@@ -151,29 +151,36 @@ flowchart TB
 
     PROM & LOKI & TEMPO --> GRAF
 
-    %% ── 控制面（虛線）──
+    %% ── 控制面（灰色虛線）──
     %% 逐條寫開而不是寫成 `ACC & LOAN & CARD & GW -.xxx.-> CS`：
     %% 部分檢視器展開 `&` 時線型會不一致，逐條宣告最保險。
-    %% 也不要改用 linkStyle 上色：它依「邊的宣告順序索引」套用，
-    %% 不同 mermaid 版本算出的索引不一致，會變成只有部分虛線被套到。
-    ACC -.啟動時取設定.-> CS
-    LOAN -.啟動時取設定.-> CS
-    CARD -.啟動時取設定.-> CS
-    GW -.啟動時取設定.-> CS
+    %% 每條邊前面的 `xxx@` 是 mermaid 11.4+ 的「邊 ID」，配合下方 classDef 上灰色。
+    %% 不要改用 linkStyle：它依「邊的宣告順序索引」套用，跨 mermaid 版本索引不一致，
+    %% 會變成只有部分虛線被套到樣式；邊 ID 是按名字對應，不受影響。
+    ACC  cfgAcc@-.啟動時取設定.-> CS
+    LOAN cfgLoan@-.啟動時取設定.-> CS
+    CARD cfgCard@-.啟動時取設定.-> CS
+    GW   cfgGw@-.啟動時取設定.-> CS
 
-    ACC -.註冊.-> EU
-    LOAN -.註冊.-> EU
-    CARD -.註冊.-> EU
-    GW -.註冊.-> EU
+    ACC  euAcc@-.註冊.-> EU
+    LOAN euLoan@-.註冊.-> EU
+    CARD euCard@-.註冊.-> EU
+    GW   euGw@-.註冊.-> EU
 
-    ACC -."metrics / span / log".-> Obs
-    LOAN -."metrics / span / log".-> Obs
-    CARD -."metrics / span / log".-> Obs
-    GW -."metrics / span / log".-> Obs
+    ACC  obsAcc@-."metrics / span / log".-> Obs
+    LOAN obsLoan@-."metrics / span / log".-> Obs
+    CARD obsCard@-."metrics / span / log".-> Obs
+    GW   obsGw@-."metrics / span / log".-> Obs
+
+    classDef ctrlPlane stroke:#94a3b8,stroke-width:1.5px
+    class authToken,authJwk ctrlPlane
+    class cfgAcc,cfgLoan,cfgCard,cfgGw ctrlPlane
+    class euAcc,euLoan,euCard,euGw ctrlPlane
+    class obsAcc,obsLoan,obsCard,obsGw ctrlPlane
 ```
 
-> **圖例**：**實線**＝一筆業務請求實際走過的路徑（Client → Gateway → 各服務 → MySQL／MQ）；
-> **虛線**＝控制面流量，只在啟動時或背景週期發生（取 token、驗證公鑰、啟動取設定、註冊 Eureka、metrics／span／log 上報）。
+> **圖例**：**深色實線**＝主要業務路徑，一筆請求實際走過的地方（Client → Gateway → 各服務 → MySQL／MQ）；
+> **灰色虛線**＝次要的控制面流量，只在啟動時或背景週期發生（取 token、驗證公鑰、啟動取設定、註冊 Eureka、metrics／span／log 上報）。
 >
 > account、loan、card、gateway 四者對 Config Server／Eureka／觀測性後端的行為**完全相同**，圖上四條線都是虛線，沒有任何一個是例外。
 > 觀測性連線收斂成一條指向「觀測性」群組：metrics 由 Prometheus 拉取 `/actuator/prometheus`，span 經 OTLP 送 Tempo，log 由 Alloy 收進 Loki。
