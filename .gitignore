@@ -14,6 +14,9 @@
 hs_err_pid*
 replay_pid*
 
+# Buildpacks / 解壓殘留在根目錄的套件路徑
+/org/
+
 ### macOS
 # Finder metadata
 .DS_Store
