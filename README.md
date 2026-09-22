@@ -97,48 +97,58 @@ sequenceDiagram
 
 ### 畫面截圖
 
-> ⚠️ **截圖尚未補齊。** 下方為預留骨架，圖片將放在 `docs/screenshots/`；補圖後把對應的 HTML 註解取消即可顯示。
+#### 一筆請求的日誌與 trace 並排
 
-#### 分散式追蹤：一筆請求跨四個服務
+**Grafana Explore — Loki × Tempo** — 左側是 account 的即時日誌，右側是**同一筆請求**的 trace 瀑布圖：`gatewayserver: http get`、**13 個 span 跨 4 個服務、共 108.16ms**。可以看到 `security filterchain`（6.66ms）→ `account http get`（88.99ms）→ `circuit-breaker` → `loan`（13.49ms）與 `card`（13.36ms）的巢狀結構。左側日誌裡的 `LoanFeignClient#fetchLoanDetails --> GET http://loan/api/fetch-loan` 就是右側那段 span，兩邊靠 traceId 對得起來。
 
-**Grafana → Tempo** — 上圖那條聚合查詢的實際 trace 瀑布圖，可看到 Gateway → Account → (Loan ∥ Card) 的 span 巢狀結構與各段耗時。
-
-<!-- ![Tempo trace 瀑布圖](docs/screenshots/tempo-trace.png) -->
+![Grafana Loki 與 Tempo 並排](docs/screenshots/grafana-loki+tempo.png)
 
 <details>
 <summary><b>🧭 服務發現與閘道 — Eureka 名冊、Gateway 路由</b></summary>
 
 <br>
 
-**Eureka 註冊清單** — `http://localhost:8070`，可看到各服務實例註冊中
+**Eureka 註冊清單** — `http://localhost:8070`。`ACCOUNT` 1 個、`CARD` 2 個、`LOAN` 2 個、`GATEWAYSERVER` 1 個實例，狀態全為 UP。實例 ID 直接就是 Kubernetes 的 Pod 名稱（`account-deployment-5cf87ccd7f-glv9f:account:8080`），可以直接對應到下方 Headlamp 的畫面。
 
-<!-- ![Eureka 註冊清單](docs/screenshots/eureka-registry.png) -->
+![Eureka 註冊清單](docs/screenshots/eurekaserver.png)
 
-**Gateway 路由表** — `/actuator/gateway/routes`，`lb://` 路由與 `/k8s/**` base-url 路由並存
+**Gateway 路由表** — `http://localhost:8072/actuator/gateway/routes`。四條路由與各自的 filter 一次看清，也是 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)在執行期的樣子：三條 `/bank/**` 指向 `lb://ACCOUNT`／`lb://LOAN`／`lb://CARD`（Eureka），`/k8s/account/**` 則直接指向 `http://account:8080`（Service DNS），回應 header `X-Gateway-Discovery-Mode` 因此分別是 `eureka` 與 `service-dns`。每條路由的容錯機制也不同——account 掛 `accountCircuitBreaker` 並 fallback 到 `forward:/contactSupport`，loan 是 `Retry`（`retries=3`、僅 GET、`PT0.1S → PT1S` 指數退避 `factor=2`），card 則是 `RequestRateLimiter`。
 
-<!-- ![Gateway 路由清單](docs/screenshots/gateway-routes.png) -->
-
-</details>
-
-<details>
-<summary><b>🔭 觀測性 — 日誌內的 correlation-id 與 trace</b></summary>
-
-<br>
-
-**Grafana → Loki** — log 行內同時帶有 `X-Gateway-Correlation-Id`、`traceId`、`spanId`，可直接跳到對應的 trace
-
-<!-- ![Grafana Loki 日誌](docs/screenshots/grafana-loki-logs.png) -->
+![Gateway 路由清單](docs/screenshots/actuator.gateway.routes.png)
 
 </details>
 
 <details>
-<summary><b>☸️ 執行環境 — Docker Compose 全員健康</b></summary>
+<summary><b>☸️ 執行環境 — Kubernetes 工作負載與 Compose 基礎設施</b></summary>
 
 <br>
 
-**`docker compose ps`** — 七個服務加上 MySQL／RabbitMQ／Kafka／Redis／Keycloak 全部 healthy
+**Headlamp — `default` namespace** — 八個 Deployment 全部 Available，`card` 與 `loan` 各 2 個副本，image 統一取自本機的 `anthonysk/<service>:0.0.1-SNAPSHOT`，另有一個 `spring-cloud-kubernetes-discoveryserver`。
 
-<!-- ![docker compose ps](docs/screenshots/compose-ps.png) -->
+![Headlamp Kubernetes 工作負載](docs/screenshots/headlamp-k8s.png)
+
+**Docker Desktop — Compose 的外部依賴** — kubectl 模式下七個 Spring 服務跑在 K8s，外部依賴仍留在 Compose：MySQL、RabbitMQ、Kafka、Redis、Keycloak，加上觀測性套件 Loki／Alloy／Prometheus／Tempo／Grafana。
+
+![Docker Desktop 容器清單](docs/screenshots/docker.png)
+
+</details>
+
+<details>
+<summary><b>🔭 觀測性 — 指標查詢與 JVM 儀表板</b></summary>
+
+<br>
+
+**Grafana Explore — Prometheus** — `process_uptime_seconds` 疊圖，七個服務各一條序列，靠 `application` 與 `job` 標籤區分（`management.metrics.tags.application` 的作用就在這裡）。
+
+![Grafana 查詢 Prometheus 指標](docs/screenshots/grafana-prometheus.png)
+
+**Grafana Dashboard — JVM (Micrometer)** — 以 `Application=account`、`Instance=host.docker.internal:8080` 過濾，Heap／Non-Heap 使用率、HTTP rate 與 duration 一次看完。
+
+![JVM Micrometer 儀表板](docs/screenshots/grafana-dashboard-jvm-micrometer.png)
+
+**Prometheus 原生 UI** — 同一個查詢在 `http://localhost:9090`。排查 target 抓不到時，這裡的 `Status → Targets` 比 Grafana 直接。
+
+![Prometheus 原生查詢介面](docs/screenshots/prometheus.png)
 
 </details>
 
