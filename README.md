@@ -490,14 +490,6 @@ flowchart LR
 - Kafka 流程為單一函式 `kafkaEmailSms`，訊息保留在 topic，可依 offset 重播。
 - 所有 consumer 都設 `group`，確保多 instance 下每筆訊息只處理一次。
 
-Kafka 以 KRaft 單節點執行，透過三組 listener 對應不同環境：
-
-| Listener | 位址 | 使用者 |
-|---|---|---|
-| 內部 | `kafka:9092` | Compose 網路內的容器 |
-| 主機 | `localhost:29092` | 在 IDE 直接執行的服務 |
-| 跨界 | `host.docker.internal:39092` | 本機 K8s 內的 Pod 回連主機 |
-
 ### 🔐 可一鍵關閉的 OAuth2 安全層
 
 Keycloak 擔任授權伺服器；Gateway 只做 **Resource Server**，驗證 JWT 但不簽發 token。安全層由兩份互斥的設定類別組成，切換 profile 即可整層關閉：
@@ -586,7 +578,31 @@ JPA 設為 `ddl-auto: validate`，**只驗證、不建立也不修改**。因此
 - Compose 每個服務都設定固定 `container_name`，因此**不能使用 `--scale`**。
 - Helm 的微服務 Chart 使用固定 NodePort，**切換 namespace 前必須先停掉另一組**，否則 port 衝突。
 - kubectl 與 Helm 不能同時管理同一份 Alloy，腳本會先移除對應的 Helm Release。
-- Docker 與 containerd 的 image store 不同，K8s 兩種環境都必須先執行 image 匯入步驟。
+
+#### K8s 為什麼要多一個「匯入 image」的步驟
+
+Kubernetes 自己不管 image，它把工作交給容器執行期（Docker Desktop 的 K8s 用 **containerd**）。而 containerd 有**自己獨立的 image store**，跟 Docker Engine 的完全不相通：
+
+```
+Docker Engine 的 image store        containerd 的 image store（k8s.io namespace）
+        ▲                                        ▲
+        │ docker build / docker images           │ kubelet 建立 Pod 時來這裡找
+        │                                        │
+    build-images.ps1 ────────────────────────────┘
+                     import-local-images-to-k8s.ps1
+                     （docker save → docker cp → ctr -n k8s.io images import）
+```
+
+兩個倉庫在同一台機器上，但**看不到彼此**——`docker build` 的產物 `docker images` 列得出來，K8s 卻不知道它存在。所以 K8s 的流程比 Compose 多一步：
+
+```
+build-images.ps1  →  import-local-images-to-k8s.ps1  →  部署／重啟
+   (Docker store)        (搬進 containerd store)
+```
+
+**漏掉中間那步不會報錯**，但 Pod 會繼續用上一次匯入的舊 image。因為 Deployment 設的是 `imagePullPolicy: IfNotPresent`（`kubernetes/account.yml:18`），containerd 發現本地已有同名 tag 就直接用，不會去 registry 找——這個設定是必要的，本專案的 image 只存在本機、沒有推上 registry。
+
+症狀是「程式改了、重新部署了，行為卻沒變」，對應 [疑難排解](#疑難排解) 的「K8s 拉到舊版 image」那一列。
 
 ---
 
