@@ -143,20 +143,32 @@ flowchart TB
     ACC & LOAN & CARD --> DB
 
     CS -->|clone| Git
-    ACC & LOAN & CARD & GW -.啟動時取設定.-> CS
     CS -->|refresh 事件| RMQ
-    ACC & LOAN & CARD & GW -.註冊.-> EU
 
     ACC -->|開戶事件| RMQ --> MS
     ACC -->|開戶事件| KFK --> MS
     MS -->|完成回報| RMQ & KFK
 
-    ACC & LOAN & CARD & GW -."metrics / span / log".-> Obs
     PROM & LOKI & TEMPO --> GRAF
 
-    %% 線型一律由語法決定：--> 實線＝業務請求路徑，-.-> 虛線＝控制面
-    %% 刻意不使用 linkStyle：它按「邊的宣告順序索引」上色，不同 mermaid 版本算出的
-    %% 索引不一致，會變成只有部分虛線被套到樣式，反而更難辨識
+    %% ── 控制面（虛線）──
+    %% 這裡刻意不寫成 `ACC & LOAN & CARD & GW -.xxx.-> CS`：部分 mermaid 版本在展開
+    %% `&` 時只有第一條邊會套到虛線型別，其餘會退回實線，所以一律逐條寫開。
+    %% 同理不使用 linkStyle，它依「邊的宣告順序索引」上色，跨版本索引不一致。
+    ACC -.啟動時取設定.-> CS
+    LOAN -.啟動時取設定.-> CS
+    CARD -.啟動時取設定.-> CS
+    GW -.啟動時取設定.-> CS
+
+    ACC -.註冊.-> EU
+    LOAN -.註冊.-> EU
+    CARD -.註冊.-> EU
+    GW -.註冊.-> EU
+
+    ACC -."metrics / span / log".-> Obs
+    LOAN -."metrics / span / log".-> Obs
+    CARD -."metrics / span / log".-> Obs
+    GW -."metrics / span / log".-> Obs
 ```
 
 > **圖例**：**實線**＝一筆業務請求實際走過的路徑（Client → Gateway → 各服務 → MySQL／MQ）；
