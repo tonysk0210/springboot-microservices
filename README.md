@@ -400,10 +400,9 @@ accounts:
 Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  Resilience4j timelimiter 15s
 ```
 
-> **Feign 的 3s 是單次嘗試的上限**（`connect-timeout: 1000` + `read-timeout: 2000`），而且 Account → Loan／Card 沒有掛 Retry，所以這一段就是 3s 封頂，不會乘上重試次數。
+> **三個數字守不同的 hop，不會疊加。** Feign 3s（`connect 1000` + `read 2000`）管 Account → Loan／Card，該段沒掛 Retry，就是封頂；Gateway 7s 與 TimeLimiter 15s 管 Gateway → Account。遞增的意義是「外層留得比內層寬」，不是「一筆請求最多等 15 秒」。
 >
-> 這三個數字**不在同一次呼叫上疊加**：Feign 3s 管的是 Account → Loan／Card，Gateway 7s 與 TimeLimiter 15s 管的是 Gateway → Account。遞增的意義是「外層要留得比內層寬」，不是「一筆請求最多等 15 秒」。
-> 實際上只有 `/bank/account/**` 受 15s 天花板保護；`/bank/loan/**` 沒有 TimeLimiter，Retry 4 次各自受 7s 限制，理論最壞可能接近 29 秒。
+> 而且 15s 天花板只罩 `/bank/account/**`（TimeLimiter 隨 Circuit Breaker 生效）；`/bank/loan/**` 沒有這層，Retry 4 次各自受 7s 限制，理論最壞近 29 秒。
 
 機制掛在**不同的 hop** 上，各自獨立統計、互不影響——同名機制出現兩次不代表疊加：
 
