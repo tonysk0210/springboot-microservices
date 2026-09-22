@@ -795,10 +795,10 @@ Gateway 會移除路徑前綴後轉給下游服務，並在回應加上 `X-Gatew
 
 `X-Gateway-Discovery-Mode` 只有兩個值，用來標示這次回應是經由哪一套服務發現送達的：
 
-| 值 | 代表 | 實例由誰挑 |
-|---|---|---|
-| `eureka` | 走 `lb://SERVICE`，先查 Eureka 名冊取得完整實例清單 | **呼叫端**（Spring Cloud LoadBalancer，client-side） |
-| `service-dns` | 直接連 `http://account:8080`，不經 Eureka | **kube-proxy**（K8s Service 層，server-side） |
+| 值 | 出現在哪些路徑 | 代表 | 實例由誰挑 |
+|---|---|---|---|
+| `eureka` | `/bank/account/**`<br/>`/bank/loan/**`<br/>`/bank/card/**` | 走 `lb://SERVICE`，先查 Eureka 名冊取得完整實例清單 | **呼叫端**（Spring Cloud LoadBalancer，client-side） |
+| `service-dns` | `/k8s/account/**` | 直接連 `http://account:8080`，不經 Eureka | **kube-proxy**（K8s Service 層，server-side） |
 
 之所以需要這個 header，是因為 `/bank/account/**` 與 `/k8s/account/**` 最終**打到同一個 Account 服務、回應內容完全相同**，不標記就分不出剛才驗證的是哪條路徑。設計脈絡見 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)。
 
