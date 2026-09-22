@@ -163,6 +163,10 @@ sequenceDiagram
 ### 全景架構圖
 
 ```mermaid
+%%{init: {'themeVariables': {'lineColor': '#1f2937'}}}%%
+%% lineColor 把「業務路徑」的預設邊色加深成近黑；mermaid 預設是中灰，
+%% 跟下方控制面的 #94a3b8 明度太接近，遠看分不出實線與虛線。
+%% 控制面的 classDef 產生 inline style，優先權高於主題 CSS，不受這行影響。
 flowchart TB
     Client["Client<br/>(Postman / curl)"]
 
