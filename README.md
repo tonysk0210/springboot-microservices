@@ -409,14 +409,46 @@ Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  R
 
 | 機制 | 守哪一段呼叫 | 設定與行為 |
 |---|---|---|
-| Circuit Breaker<br/>`accountCircuitBreaker` | **Gateway → Account** | 滑動視窗 5 次、最少 5 次、失敗率 50%、OPEN 10 秒、HALF_OPEN 放行 2 次；跳閘後 `forward:/contactSupport` |
-| Circuit Breaker<br/>（Feign） | **Account → Loan／Card** | 參數同上但**獨立計數**（兩份設定各自複製，改一邊不影響另一邊）；跳閘後由 `*Fallback` 回傳 null，**Account 仍回 200** —— 因此下游壞掉不會讓上面那個 CB 跳閘 |
+| Circuit Breaker<br/>`accountCircuitBreaker` | **Gateway → Account** | 最近 5 次呼叫裡失敗 3 次就斷開 10 秒，期間請求完全不送到 Account、直接 `forward:/contactSupport`（狀態流程見下方） |
+| Circuit Breaker<br/>（Feign） | **Account → Loan／Card** | 參數與上面完全相同但**獨立計數**（兩份設定各自複製，改一邊不影響另一邊）；跳閘後由 `*Fallback` 回傳 null，**Account 仍回 200** —— 因此下游壞掉不會讓上面那個 CB 跳閘 |
 | Retry | **Gateway → Loan** | 僅 GET、最多 4 次（含首次）、100 → 200 → 400ms 指數退避，單次上限 1s |
 | Retry<br/>（`@Retry`） | **Account 內的測試端點** | 只掛在 `/api/test-retry`（`ResilienceTestController.java:39`）：`maxAttempts: 4`、100ms 起 ×2 退避、單次上限 1s。**Account → Loan／Card 的 Feign 呼叫沒有套用 Retry**，失敗即進 fallback |
 | RateLimiter | **Account 服務內** | 每 5 秒 1 次，記憶體計數，**每個 instance 各自計算**（開兩個副本，實際通過量就是兩倍） |
 | RequestRateLimiter | **Gateway → Card** | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429；計數在 Redis，多個 Gateway 副本共用額度 |
 | TimeLimiter | **Gateway → Account**（隨 CB 生效） | 15s，需大於 Gateway 的 HTTP timeout（7s）。**只在掛了 Circuit Breaker 的路由生效**，loan／card／k8s 三條路由沒有這層 |
 | Fallback | 兩處 | Account `*Fallback` 回 null（讓聚合查詢仍成功）；Gateway `/contactSupport` 回聯絡資訊 |
+
+#### Circuit Breaker 的狀態怎麼轉換
+
+```
+CLOSED（正常，全部放行）
+   │
+   │  最近 5 次呼叫裡失敗 3 次（60% ≥ 50%）
+   ▼
+OPEN（斷開 10 秒）
+   │
+   │  期間請求完全不送到下游，一律直接走 fallback
+   │  10 秒後自動進入下一狀態
+   ▼
+HALF_OPEN（只放行 2 個試探請求，第 3 個以後照樣擋掉）
+   │
+   ├─ 2 次全成功 ─────────────→ CLOSED（恢復正常）
+   └─ 只要失敗 1 次（50% ≥ 50%）→ OPEN（再斷 10 秒，重來一輪）
+```
+
+五個設定值的白話對照：
+
+| 設定 | 白話 |
+|---|---|
+| `slidingWindowSize: 5` | 只看**最近 5 次**呼叫，第 6 次進來就擠掉第 1 次（滾動的，不是每 5 次結算歸零） |
+| `minimumNumberOfCalls: 5` | 累積滿 5 次才開始判斷，避免剛啟動第一次失敗就跳閘 |
+| `failureRateThreshold: 50` | 失敗率**達到**（不是超過）50% 就跳閘 |
+| `waitDurationInOpenState: 10000` | 斷開後等 10 秒才做下一次試探 |
+| `permittedNumberOfCallsInHalfOpenState: 2` | 試探時只放 2 個請求過去當「偵察兵」，避免下游還沒好就被全部流量再壓垮 |
+
+視窗 5 搭配門檻 50%，實際條件就是「**最近 5 次裡失敗 3 次**」—— 失敗 2 次只有 40%，不會跳閘。而 HALF_OPEN 的 2 次試探因為門檻是「達到」50%，**失敗 1 次（剛好 50%）就足以打回 OPEN**，設計上偏保守。
+
+> 視窗只有 5 是**練習專案的刻意設定**，方便手動測出跳閘（連打 3 次失敗就看得到）。正式環境通常放大到 50～100，否則偶發的連續失敗就會誤跳閘，恢復時也只憑 2 次成功就全面放行，風險偏高。
 
 **設計取捨：** Account 停用了 CircuitBreaker 的 Feign 執行緒池（`spring.cloud.circuitbreaker.resilience4j.disable-thread-pool=true`），目的是避免執行緒切換導致 MDC 內的 correlation-id 遺失；代價是 TimeLimiter 無法中斷阻塞中的同步 Feign，等待時間改由 Feign 的 connect/read timeout 把關。
 
