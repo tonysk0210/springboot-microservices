@@ -778,30 +778,31 @@ cd loan; .\mvnw.cmd spring-boot:build-image "-Dmaven.test.skip=true"
 
 各建法的差異與陷阱見 [§3 一個 repo，三種 image 建法](#-一個-repo三種-image-建法)。
 
-### 執行測試
-
-```powershell
-cd account; .\mvnw.cmd test                                            # 全部測試
-cd account; .\mvnw.cmd test "-Dtest=AccountApplicationTests"            # 單一類別
-cd account; .\mvnw.cmd test "-Dtest=AccountApplicationTests#contextLoads"  # 單一方法
-```
-
-目前僅有 Spring Initializr 產生的 7 個 context smoke test；它們會嘗試連線 Config Server／MySQL／RabbitMQ，離線時通常失敗，因此 image 建置流程一律略過測試。
-
 ---
 
 ## 6. 附錄
 
 ### 對外 API 與 Gateway 路由
 
-Gateway 會移除路徑前綴後轉給下游服務，並加上 `X-Response-Time` 與 `X-Gateway-Discovery-Mode` 回應 header。
+Gateway 會移除路徑前綴後轉給下游服務，並在回應加上 `X-Gateway-Discovery-Mode` header。
 
-| Gateway 路徑 | 目標 | 發現方式 | 附加機制 |
-|---|---|---|---|
-| `/bank/account/**` | Account | `lb://ACCOUNT`（Eureka） | Circuit Breaker → `forward:/contactSupport` |
-| `/bank/loan/**` | Loan | `lb://LOAN`（Eureka） | GET Retry ×3，指數退避 |
-| `/bank/card/**` | Card | `lb://CARD`（Eureka） | Redis 令牌桶限流（依 `user` header 分桶） |
-| `/k8s/account/**` | Account | Service DNS（`downstream.account.base-url`） | 無，用於對照 Eureka |
+| Gateway 路徑 | 目標 | 發現方式 | `X-Gateway-Discovery-Mode` | 附加機制 |
+|---|---|---|---|---|
+| `/bank/account/**` | Account | `lb://ACCOUNT`（Eureka） | `eureka` | Circuit Breaker → `forward:/contactSupport` |
+| `/bank/loan/**` | Loan | `lb://LOAN`（Eureka） | `eureka` | GET Retry ×3，指數退避 |
+| `/bank/card/**` | Card | `lb://CARD`（Eureka） | `eureka` | Redis 令牌桶限流（依 `user` header 分桶） |
+| `/k8s/account/**` | Account | Service DNS（`downstream.account.base-url`） | `service-dns` | 無，用於對照 Eureka |
+
+`X-Gateway-Discovery-Mode` 只有兩個值，用來標示這次回應是經由哪一套服務發現送達的：
+
+| 值 | 代表 | 實例由誰挑 |
+|---|---|---|
+| `eureka` | 走 `lb://SERVICE`，先查 Eureka 名冊取得完整實例清單 | **呼叫端**（Spring Cloud LoadBalancer，client-side） |
+| `service-dns` | 直接連 `http://account:8080`，不經 Eureka | **kube-proxy**（K8s Service 層，server-side） |
+
+之所以需要這個 header，是因為 `/bank/account/**` 與 `/k8s/account/**` 最終**打到同一個 Account 服務、回應內容完全相同**，不標記就分不出剛才驗證的是哪條路徑。設計脈絡見 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)。
+
+> 這個值是 `RouteConfig.java` 在每條路由上以 `addResponseHeader` **人工寫死**的字串，不由 `uri()` 推導。改路由的目標位址時必須記得一起改，否則 header 會標錯。
 
 ### 服務端點速查
 
