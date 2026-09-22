@@ -266,7 +266,7 @@ flowchart TB
 |---|---|---|---|
 | `configserver` | 8071 | Jib | 提供集中式設定；`/monitor` 接收 webhook 並經 Bus 廣播 refresh；`/encrypt`、`/decrypt` |
 | `eurekaserver` | 8070 | Jib | 單機模式服務註冊中心（不自我註冊） |
-| `gatewayserver` | 8072 | Jib | 路由改寫、Circuit Breaker、Retry、Redis 限流、OAuth2 驗證、trace filter |
+| `gatewayserver` | 8072 | Jib | 路由改寫、Circuit Breaker、Retry、Redis 限流、OAuth2 驗證、**自訂 trace filter**（`RequestTraceFilter` 產生或沿用 `X-Gateway-Correlation-Id`、`ResponseTraceFilter` 回寫到回應 header） |
 | `account` | 8080 | Dockerfile | 帳戶／客戶 CRUD；以 Feign 聚合 loan 與 card；發布開戶事件 |
 | `loan` | 8090 | Buildpacks | 貸款 CRUD |
 | `card` | 9000 | Jib | 信用卡 CRUD |
@@ -472,9 +472,17 @@ API 使用 Bearer token、不依賴 Cookie，因此停用 CSRF。
 Log pattern 內嵌三個識別碼，全部自 MDC 取得，因此一行 log 就能跳到對應的 trace：
 
 ```
-%X{X-Gateway-Correlation-Id}  # 由各服務的 CorrelationIdFilter 放入
+%X{X-Gateway-Correlation-Id}  # 自訂欄位，見下方說明
 %X{traceId}  %X{spanId}       # 由 Micrometer Tracing 放入
 ```
+
+`X-Gateway-Correlation-Id` 是**本專案自訂的**（不是 OpenTelemetry 規格的一部分），由 Gateway 產生、業務服務沿用：
+
+1. `RequestTraceFilter`（Gateway 的 `GlobalFilter`）檢查進來的請求有沒有這個 header —— 有就沿用，沒有就 `UUID.randomUUID()` 產生一個寫進去，確保整條呼叫鏈共用同一個 ID。
+2. 請求轉發到下游，account／loan／card 各自的 `CorrelationIdFilter` 把它讀進 MDC，log pattern 才印得出來。
+3. `ResponseTraceFilter` 在回應時把它寫回 response header，呼叫端拿得到，出問題時可以直接拿這個 ID 去 Loki 查。
+
+跟 `traceId` 的差別：`traceId` 由 Micrometer／OTel 自動管理、用於 Tempo 的 span 關聯；`X-Gateway-Correlation-Id` 是人可讀可傳遞的業務層識別碼，即使沒開 tracing 也還在。
 
 - **Gateway 是 WebFlux，必須保留 `spring.reactor.context-propagation: auto`**，否則 Reactor 換執行緒後 MDC 為空，log 的 traceId／spanId 永遠顯示空白（Servlet 服務不需要此設定）。這是整份文件最容易踩、也最難察覺的一條。
 - 所有服務以 `management.metrics.tags.application` 標記服務名，避免 Grafana 圖表混在一起。
