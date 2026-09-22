@@ -412,7 +412,7 @@ Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  R
 | Circuit Breaker<br/>（Feign） | **Account → Loan／Card** | 參數與上面完全相同但**獨立計數**（兩份設定各自複製，改一邊不影響另一邊）；跳閘後由 `*Fallback` 回傳 null，**Account 仍回 200** —— 因此下游壞掉不會讓上面那個 CB 跳閘 |
 | Retry | **Gateway → Loan** | 僅 GET、最多 4 次（含首次）、100 → 200 → 400ms 指數退避，單次上限 1s |
 | Retry<br/>（`@Retry`） | **Account 內的測試端點** | 只掛在 `/api/test-retry`（`ResilienceTestController.java:39`）：`maxAttempts: 4`、100ms 起 ×2 退避、單次上限 1s。**Account → Loan／Card 的 Feign 呼叫沒有套用 Retry**，失敗即進 fallback |
-| RateLimiter | **Account 服務內** | 每 5 秒 1 次，記憶體計數，**每個 instance 各自計算**（開兩個副本，實際通過量就是兩倍） |
+| RateLimiter<br/>（`@RateLimiter`） | **Account 內的測試端點** | 只掛在 `/api/test-rate-limiter`（`ResilienceTestController.java:72`）：每 5 秒 1 次，記憶體計數（詳見下方）。**業務 API 沒有套用服務內限流** |
 | RequestRateLimiter | **Gateway → Card** | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429；計數在 Redis，多個 Gateway 副本共用額度 |
 | TimeLimiter | **Gateway → Account**（隨 CB 生效） | 15s，需大於 Gateway 的 HTTP timeout（7s）。**只在掛了 Circuit Breaker 的路由生效**，loan／card／k8s 三條路由沒有這層 |
 | Fallback | 兩處 | Account `*Fallback` 回 null（讓聚合查詢仍成功）；Gateway `/contactSupport` 回聯絡資訊 |
@@ -448,6 +448,37 @@ HALF_OPEN（只放行 2 個試探請求，第 3 個以後照樣擋掉）
 視窗 5 搭配門檻 50%，實際條件就是「**最近 5 次裡失敗 3 次**」—— 失敗 2 次只有 40%，不會跳閘。而 HALF_OPEN 的 2 次試探因為門檻是「達到」50%，**失敗 1 次（剛好 50%）就足以打回 OPEN**，設計上偏保守。
 
 > 視窗只有 5 是**練習專案的刻意設定**，方便手動測出跳閘（連打 3 次失敗就看得到）。正式環境通常放大到 50～100，否則偶發的連續失敗就會誤跳閘，恢復時也只憑 2 次成功就全面放行，風險偏高。
+
+#### 兩種限流的差別
+
+專案裡有**兩套互不相干**的限流，常被混為一談。Account 那套是**固定週期發通行證**：
+
+```
+每 5 秒發 1 張通行證
+   ├─ 拿得到 → 放行
+   └─ 拿不到 → 立刻拋 RequestNotPermitted，交給 fallbackMethod（不排隊等）
+
+  0.0s   發 1 張 ──→ 第 1 個請求拿走          ✅
+  0.1s           ──→ 第 2 個請求，沒證        ❌ 立刻失敗
+  4.9s           ──→ 第 3 個請求，沒證        ❌ 立刻失敗
+  5.0s   發 1 張 ──→ 第 4 個請求拿走          ✅
+```
+
+| 設定 | 白話 |
+|---|---|
+| `limitForPeriod: 1` | 每個週期只發 **1 張**通行證 |
+| `limitRefreshPeriod: 5s` | **每 5 秒**重新發一輪；用不完不會累積到下一輪 |
+| `timeoutDuration: 0` | 沒證時**不排隊等**，立刻失敗 |
+
+| | Account 的 `@RateLimiter` | Gateway 的 `RequestRateLimiter` |
+|---|---|---|
+| 掛在哪 | 只有 `/api/test-rate-limiter` | `/bank/card/**` 的全部請求 |
+| 計數存哪 | **JVM 記憶體** | **Redis** |
+| 多副本時 | **各算各的** —— 開 2 個 Pod，實際通過量就是 2 倍 | 共用同一份額度，副本數不影響 |
+| 分桶 | 不分使用者，同一 instance 內所有人共用 | 依 `user` header 分桶，未帶時共用 `anonymous` |
+| 超量回應 | 拋 `RequestNotPermitted` → fallback | HTTP 429 |
+
+測試腳本也是分開的：`.\test-ratelimit-service.ps1` 打 Account 8080，`.\test-ratelimit-gateway.ps1` 打 Gateway 的 card 路由。
 
 **設計取捨：** Account 停用了 CircuitBreaker 的 Feign 執行緒池（`spring.cloud.circuitbreaker.resilience4j.disable-thread-pool=true`），目的是避免執行緒切換導致 MDC 內的 correlation-id 遺失；代價是 TimeLimiter 無法中斷阻塞中的同步 Feign，等待時間改由 Feign 的 connect/read timeout 把關。
 
