@@ -311,7 +311,7 @@ springboot-microservices/
 
 | 主題 | 一句話 |
 |---|---|
-| [🔀 兩條服務發現路徑刻意並存](#-兩條服務發現路徑刻意並存) | 同一份程式同時用 Eureka 與 K8s Service DNS 呼叫下游 |
+| [🔀 兩條服務發現路徑刻意並存](#-兩條服務發現路徑刻意並存) | 同一份程式對照 client-side 與 server-side 兩種負載平衡 |
 | [⚙️ 集中式設定與動態刷新](#️-集中式設定與動態刷新) | Git backend 讀的是 GitHub，不是磁碟 |
 | [🛡️ 由內到外的逾時鏈](#️-由內到外的逾時鏈) | Feign 3s → Gateway 7s → TimeLimiter 10s，順序不能亂 |
 | [📨 RabbitMQ 與 Kafka 雙 binder 並掛](#-rabbitmq-與-kafka-雙-binder-並掛) | Bus 固定走 Rabbit，業務事件兩條都走 |
@@ -323,10 +323,16 @@ springboot-microservices/
 
 ### 🔀 兩條服務發現路徑刻意並存
 
-Account 對 loan 與 card 各準備了兩組 Feign Client。**兩組都是 Feign，差別只在目標位址怎麼解析**：
+Account 對 loan 與 card 各準備了兩組 Feign Client。**兩組都是 Feign，差別只在目標位址怎麼解析**——而這組對照真正要展示的是**負載平衡的兩種模型**：
+
+- **Client-side（Eureka 路徑）** — Account 向 Eureka 取得 loan 的**完整實例清單**，由 Spring Cloud LoadBalancer 在自己的 JVM 裡挑一個，直接連到該 Pod。
+- **Server-side（Service DNS 路徑）** — Account 只知道 `loan:8090` 這個名字，連過去就結束；**誰接到這筆請求 Account 完全不知道**，分流是 kube-proxy 的事。
+
+差別不只是寫法，而是**分流的決策權在誰手上**。
 
 | | Eureka 路徑 | Kubernetes Service DNS 路徑 |
 |---|---|---|
+| 負載平衡模型 | **Client-side** | **Server-side** |
 | Feign Client | `LoanFeignClient` / `CardFeignClient` | `KubernetesLoanFeignClient` / `KubernetesCardFeignClient` |
 | 宣告方式 | `@FeignClient(name = "loan")` | `@FeignClient(name = "loanKubernetes", url = "${downstream.loan.base-url}")` |
 | 實例選擇 | Eureka 名冊 + Spring Cloud LoadBalancer | K8s Service selector 分流到 Ready Pod |
@@ -348,6 +354,12 @@ public interface KubernetesLoanFeignClient { ... }
 ```
 
 因為第二條路徑不查 Eureka，**Eureka 沒啟動時它照樣能呼叫**，但 loan／card 的 Service 必須可連線。
+
+**兩種模型的實際差異在「失效偵測有多快」。** 本專案沒有自訂 Eureka 的時間參數，走 Netflix 預設：心跳每 30 秒、lease 90 秒過期、client 每 30 秒刷新清單。所以 Pod 死掉後最糟要 90 秒才從名冊移除，呼叫端再最多 30 秒才知道——這段期間請求仍會打到已經死掉的實例，只能靠 Circuit Breaker 與 fallback 擋。Service DNS 則由 readiness probe 驅動，Pod 一 NotReady 就從 Endpoints 移除，秒級生效。
+
+反過來說，client-side 換來的是**控制權**：要做 zone 親和、依實例權重分流、讀取實例 metadata，都必須先拿得到完整清單才辦得到；server-side 把這些決定交給了平台。
+
+現成的對照實驗：把 `eurekaserver` 的 Deployment scale 到 0，`-eureka` 端點會開始回 fallback，`-k8s` 端點則完全不受影響——一次看清楚誰依賴 Eureka。
 
 ### ⚙️ 集中式設定與動態刷新
 
