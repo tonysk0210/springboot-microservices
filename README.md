@@ -94,17 +94,21 @@
 
 ## 系統架構
 
-架構拆成兩張圖：**業務請求路徑**是一筆 API 呼叫實際走過的地方；**平台與控制面**是每個服務啟動時或背景週期會做的事，跟單一請求無關。
-兩者原本畫在同一張圖，連線交錯到難以辨識，因此分開。
-
-### 業務請求路徑
-
 ```mermaid
-flowchart LR
+flowchart TB
     Client["Client<br/>(Postman / curl)"]
-    KC["Keycloak :7080<br/>OAuth2 / JWT"]
-    GW["Gateway Server :8072<br/>WebFlux · 路由 · 限流 · CB"]
-    Redis[("Redis :6379<br/>限流計數")]
+
+    subgraph Edge["入口層"]
+        KC["Keycloak :7080<br/>OAuth2 / JWT"]
+        GW["Gateway Server :8072<br/>WebFlux · 路由 · 限流 · CB"]
+        Redis[("Redis :6379<br/>限流計數")]
+    end
+
+    subgraph Platform["平台服務"]
+        CS["Config Server :8071<br/>Git + native"]
+        EU["Eureka Server :8070<br/>服務註冊"]
+        Git[("GitHub<br/>configyml/")]
+    end
 
     subgraph Biz["業務服務"]
         ACC["Account :8080"]
@@ -112,47 +116,13 @@ flowchart LR
         CARD["Card :9000"]
     end
 
-    DB[("MySQL :3306<br/>accountdb / loandb / carddb")]
-
-    subgraph Msg["非同步通知"]
+    subgraph Msg["非同步"]
         RMQ["RabbitMQ :5672"]
         KFK["Kafka :9092"]
         MS["MessageService :9010"]
     end
 
-    Client -.取得 token.-> KC
-    Client -->|Bearer JWT| GW
-    GW -.驗證公鑰.-> KC
-    GW -->|限流計數| Redis
-    GW -->|lb:// 經 Eureka| ACC & LOAN & CARD
-    GW -->|/k8s/** Service DNS| ACC
-
-    ACC -->|Feign| LOAN
-    ACC -->|Feign| CARD
-    ACC & LOAN & CARD --> DB
-
-    ACC -->|開戶事件| RMQ --> MS
-    ACC -->|開戶事件| KFK --> MS
-    MS -->|完成回報| RMQ & KFK
-```
-
-> 只有兩條虛線：Client 取 token 與 Gateway 驗證公鑰，屬於認證流程，不算業務資料流。
-
-### 平台與控制面
-
-```mermaid
-flowchart LR
-    subgraph Apps["每個服務都會做的事"]
-        ACC["Account :8080"]
-        LOAN["Loan :8090"]
-        CARD["Card :9000"]
-        GW["Gateway Server :8072"]
-    end
-
-    CS["Config Server :8071<br/>Git + native"]
-    EU["Eureka Server :8070<br/>服務註冊"]
-    Git[("GitHub<br/>configyml/")]
-    RMQ["RabbitMQ :5672"]
+    DB[("MySQL :3306<br/>accountdb / loandb / carddb")]
 
     subgraph Obs["觀測性"]
         PROM["Prometheus"]
@@ -161,18 +131,52 @@ flowchart LR
         GRAF["Grafana :3000"]
     end
 
-    ACC & LOAN & CARD & GW -->|啟動時取設定| CS
-    ACC & LOAN & CARD & GW -->|註冊| EU
-    ACC & LOAN & CARD & GW -->|metrics / span / log| Obs
+    Client -->|Bearer JWT| GW
+    Client -.取得 token.-> KC
+    GW -.驗證公鑰.-> KC
+    GW --> Redis
+    GW -->|lb:// 經 Eureka| ACC & LOAN & CARD
+    GW -->|/k8s/** Service DNS| ACC
+
+    ACC -->|Feign| LOAN
+    ACC -->|Feign| CARD
+    ACC & LOAN & CARD --> DB
 
     CS -->|clone| Git
     CS -->|refresh 事件| RMQ
+
+    ACC -->|開戶事件| RMQ --> MS
+    ACC -->|開戶事件| KFK --> MS
+    MS -->|完成回報| RMQ & KFK
+
     PROM & LOKI & TEMPO --> GRAF
+
+    %% ── 控制面（虛線）──
+    %% 逐條寫開而不是寫成 `ACC & LOAN & CARD & GW -.xxx.-> CS`：
+    %% 部分檢視器展開 `&` 時線型會不一致，逐條宣告最保險。
+    %% 也不要改用 linkStyle 上色：它依「邊的宣告順序索引」套用，
+    %% 不同 mermaid 版本算出的索引不一致，會變成只有部分虛線被套到。
+    ACC -.啟動時取設定.-> CS
+    LOAN -.啟動時取設定.-> CS
+    CARD -.啟動時取設定.-> CS
+    GW -.啟動時取設定.-> CS
+
+    ACC -.註冊.-> EU
+    LOAN -.註冊.-> EU
+    CARD -.註冊.-> EU
+    GW -.註冊.-> EU
+
+    ACC -."metrics / span / log".-> Obs
+    LOAN -."metrics / span / log".-> Obs
+    CARD -."metrics / span / log".-> Obs
+    GW -."metrics / span / log".-> Obs
 ```
 
-> account、loan、card、gateway 四者對 Config Server／Eureka／觀測性後端的行為完全相同，沒有任何一個是例外。
-> 這張圖內每條線都是控制面，所以一律用實線，不再靠線型區分。
-> metrics 由 Prometheus 拉取 `/actuator/prometheus`，span 經 OTLP 送 Tempo，log 由 Alloy 收進 Loki。
+> **圖例**：**實線**＝一筆業務請求實際走過的路徑（Client → Gateway → 各服務 → MySQL／MQ）；
+> **虛線**＝控制面流量，只在啟動時或背景週期發生（取 token、驗證公鑰、啟動取設定、註冊 Eureka、metrics／span／log 上報）。
+>
+> account、loan、card、gateway 四者對 Config Server／Eureka／觀測性後端的行為**完全相同**，圖上四條線都是虛線，沒有任何一個是例外。
+> 觀測性連線收斂成一條指向「觀測性」群組：metrics 由 Prometheus 拉取 `/actuator/prometheus`，span 經 OTLP 送 Tempo，log 由 Alloy 收進 Loki。
 
 ### 請求流程（以聚合查詢為例）
 
