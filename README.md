@@ -108,9 +108,13 @@ sequenceDiagram
 
 <br>
 
-**Eureka 註冊清單** — `http://localhost:8070`。`ACCOUNT` 1 個、`CARD` 2 個、`LOAN` 2 個、`GATEWAYSERVER` 1 個實例，狀態全為 UP。實例 ID 直接就是 Kubernetes 的 Pod 名稱（`account-deployment-5cf87ccd7f-glv9f:account:8080`），可以直接對應到下方 Headlamp 的畫面。
+**Eureka 註冊清單** — `http://localhost:8070`。`ACCOUNT` 1 個、`CARD` 2 個、`LOAN` 2 個、`GATEWAYSERVER` 1 個實例，狀態全為 UP。實例 ID 直接就是 Kubernetes 的 Pod 名稱（`account-deployment-5cf87ccd7f-glv9f:account:8080`）。
 
 ![Eureka 註冊清單](docs/screenshots/eurekaserver.png)
+
+**Headlamp — `default` namespace 的 Pods** — 上面那些實例 ID 在這裡一一對得上：`account-deployment-5cf87ccd7f-glv9f`、`loan-deployment-5f48cfb949-gtgvs` 與 `-l6x2m`、`card-deployment-7f88885cd5-8h2q7` 與 `-jw85p`、`gatewayserver-deployment-565657b5f7-w8w7r`。loan 與 card 各有兩個 Pod，正好對應 Eureka 上的 `LOAN (2)` 與 `CARD (2)` —— **Eureka 名冊即時反映 K8s 的實際副本數**，這也是 `lb://` 路由能分流到兩個 Pod 的依據。
+
+![Headlamp Pod 清單](docs/screenshots/headlamp-pod.png)
 
 **Gateway 路由表** — `http://localhost:8072/actuator/gateway/routes`。四條路由與各自的 filter 一次看清，也是 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)在執行期的樣子：三條 `/bank/**` 指向 `lb://ACCOUNT`／`lb://LOAN`／`lb://CARD`（Eureka），`/k8s/account/**` 則直接指向 `http://account:8080`（Service DNS），回應 header `X-Gateway-Discovery-Mode` 因此分別是 `eureka` 與 `service-dns`。每條路由的容錯機制也不同——account 掛 `accountCircuitBreaker` 並 fallback 到 `forward:/contactSupport`，loan 是 `Retry`（`retries=3`、僅 GET、`PT0.1S → PT1S` 指數退避 `factor=2`），card 則是 `RequestRateLimiter`。
 
