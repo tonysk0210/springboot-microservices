@@ -400,6 +400,8 @@ accounts:
 Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  Resilience4j timelimiter 15s
 ```
 
+> **Feign 的 3s 是單次嘗試的上限**（`connect-timeout: 1000` + `read-timeout: 2000`），而且 Account → Loan／Card 沒有掛 Retry，所以這一段就是 3s 封頂，不會乘上重試次數。
+>
 > 這三個數字**不在同一次呼叫上疊加**：Feign 3s 管的是 Account → Loan／Card，Gateway 7s 與 TimeLimiter 15s 管的是 Gateway → Account。遞增的意義是「外層要留得比內層寬」，不是「一筆請求最多等 15 秒」。
 > 實際上只有 `/bank/account/**` 受 15s 天花板保護；`/bank/loan/**` 沒有 TimeLimiter，Retry 4 次各自受 7s 限制，理論最壞可能接近 29 秒。
 
@@ -410,7 +412,7 @@ Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  R
 | Circuit Breaker<br/>`accountCircuitBreaker` | **Gateway → Account** | 滑動視窗 5 次、最少 5 次、失敗率 50%、OPEN 10 秒、HALF_OPEN 放行 2 次；跳閘後 `forward:/contactSupport` |
 | Circuit Breaker<br/>（Feign） | **Account → Loan／Card** | 參數同上但**獨立計數**（兩份設定各自複製，改一邊不影響另一邊）；跳閘後由 `*Fallback` 回傳 null，**Account 仍回 200** —— 因此下游壞掉不會讓上面那個 CB 跳閘 |
 | Retry | **Gateway → Loan** | 僅 GET、最多 4 次（含首次）、100 → 200 → 400ms 指數退避，單次上限 1s |
-| Retry<br/>（Feign） | **Account → Loan／Card** | `maxAttempts: 4`、100ms 起 ×2 退避、單次上限 1s；`ResourceNotFoundException` 與 `CustomerAlreadyExistsException` 不重試 |
+| Retry<br/>（`@Retry`） | **Account 內的測試端點** | 只掛在 `/api/test-retry`（`ResilienceTestController.java:39`）：`maxAttempts: 4`、100ms 起 ×2 退避、單次上限 1s。**Account → Loan／Card 的 Feign 呼叫沒有套用 Retry**，失敗即進 fallback |
 | RateLimiter | **Account 服務內** | 每 5 秒 1 次，記憶體計數，**每個 instance 各自計算**（開兩個副本，實際通過量就是兩倍） |
 | RequestRateLimiter | **Gateway → Card** | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429；計數在 Redis，多個 Gateway 副本共用額度 |
 | TimeLimiter | **Gateway → Account**（隨 CB 生效） | 15s，需大於 Gateway 的 HTTP timeout（7s）。**只在掛了 Circuit Breaker 的路由生效**，loan／card／k8s 三條路由沒有這層 |
