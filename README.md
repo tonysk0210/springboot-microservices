@@ -5,8 +5,9 @@
 <p>
   <img alt="Java" src="https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white">
   <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?logo=springboot&logoColor=white">
+  <img alt="Spring Security" src="https://img.shields.io/badge/Spring%20Security-7.1.0-6DB33F?logo=springsecurity&logoColor=white">
   <img alt="Spring Cloud" src="https://img.shields.io/badge/Spring%20Cloud-2025.1.2-6DB33F?logo=spring&logoColor=white">
-  <img alt="Maven" src="https://img.shields.io/badge/Maven-Wrapper-C71A36?logo=apachemaven&logoColor=white">
+  <img alt="Maven" src="https://img.shields.io/badge/Maven-3.9.16-C71A36?logo=apachemaven&logoColor=white">
   <img alt="springdoc-openapi" src="https://img.shields.io/badge/springdoc--openapi-3.1.0-85EA2D?logo=swagger&logoColor=black">
 </p>
 <p>
@@ -505,8 +506,9 @@ JPA 設為 `ddl-auto: validate`，**只驗證、不建立也不修改**。因此
 |---|---|---|
 | Java | 25 | 所有模組統一 |
 | Spring Boot | 4.1.0 | `spring-boot-starter-parent` |
+| Spring Security | 7.1.0 | 由 Boot 託管；Gateway 作為 Resource Server 驗證 JWT |
 | Spring Cloud | 2025.1.2 | 由 `microservices-bom` 匯入 |
-| Maven Wrapper | 各模組自帶 | **無 root aggregator POM**，每個服務獨立建置 |
+| Maven Wrapper | 3.9.16 | 各模組自帶，**無 root aggregator POM**，每個服務獨立建置 |
 | Lombok | Boot 管理 | Java 23+ 需顯式宣告 `annotationProcessorPaths` |
 | springdoc-openapi | 3.1.0 | Swagger UI（webmvc / webflux 兩種） |
 
