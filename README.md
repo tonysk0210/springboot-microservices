@@ -155,7 +155,17 @@ flowchart TB
     ACC & LOAN & CARD & GW -.OTLP span.-> TEMPO
     ACC & LOAN & CARD & GW -.log.-> LOKI
     PROM & LOKI & TEMPO --> GRAF
+
+    %% 灰色虛線 = 控制面流量（取 token、驗證公鑰、啟動取設定、註冊、觀測性上報）
+    %% 只靠線型會被交錯的實線蓋住，所以額外上色區分
+    %% 注意：linkStyle 用的是「邊的宣告順序索引」，上面新增或刪除任何一條邊都要重算
+    linkStyle 1,2 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
+    linkStyle 14,15,16,17,19,20,21,22 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
+    linkStyle 29,30,31,32,33,34,35,36,37,38,39,40 stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:5 5
 ```
+
+> **圖例**：**實線**＝一筆業務請求實際走過的路徑（Client → Gateway → 各服務 → MySQL／MQ）；
+> **灰色虛線**＝控制面流量，只在啟動時或背景週期發生（取 token、驗證公鑰、啟動取設定、註冊 Eureka、metrics／trace／log 上報）。
 
 ### 請求流程（以聚合查詢為例）
 
