@@ -243,7 +243,9 @@ flowchart TB
     CARD obsCard@-."metrics / span / log".-> Obs
     GW   obsGw@-."metrics / span / log".-> Obs
 
-    classDef ctrlPlane stroke:#94a3b8,stroke-width:1.5px
+    %% stroke-dasharray 覆蓋 mermaid 預設的 edge-pattern-dotted（dasharray 3，點狀很細碎），
+    %% 改成清楚的長虛線。值用空白分隔而非逗號 —— classDef 以逗號分隔屬性，寫 `8,5` 會被拆錯。
+    classDef ctrlPlane stroke:#94a3b8,stroke-width:1.5px,stroke-dasharray:8 5
     class authToken,authJwk ctrlPlane
     class cfgAcc,cfgLoan,cfgCard,cfgGw ctrlPlane
     class euAcc,euLoan,euCard,euGw ctrlPlane
