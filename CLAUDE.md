@@ -116,7 +116,7 @@ Gateway 端同樣成對：`/bank/{account,loan,card}/**` 走 `lb://`（Eureka）
 
 ### 韌性設定的層次
 
-逾時必須由內到外遞增，改任一層都要一起檢查：**Feign 約 3s（connect 1s + read 2s）→ Gateway `response-timeout` 7s → Resilience4j `timelimiter` 10s**。
+逾時必須由內到外遞增，改任一層都要一起檢查：**Feign 約 3s（connect 1s + read 2s）→ Gateway `response-timeout` 7s → Resilience4j `timelimiter` 15s**。
 
 - Account 停用了 CircuitBreaker 的 Feign 執行緒池（`spring.cloud.circuitbreaker.resilience4j.disable-thread-pool=true`），目的是保住 MDC 裡的 correlation-id；代價是 TimeLimiter 無法中斷同步 Feign，等待時間改由 Feign timeout 控制。
 - 每個路由的容錯機制不同：account 路由用 Circuit Breaker + `forward:/contactSupport`，loan 路由用 GET retry，card 路由用 Redis `RequestRateLimiter`（依 `user` header 分桶）。

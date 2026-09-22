@@ -22,7 +22,7 @@ spring:
         webflux:
           # Gateway 全域 HTTP Client 設定，套用到所有由 Gateway 轉發的 HTTP 路由。
           # 這組逾時也用來測試 Gateway 的 Resilience4j Circuit Breaker：讓下游處理超過時限，Gateway 產生逾時失敗，累計後觸發 fallback。
-          # 逾時應由內到外遞增：Feign 單次約 3s（連線 1s + 回應 2s）→ Gateway 7s → timelimiter 10s。
+          # 逾時應由內到外遞增：Feign 單次約 3s（連線 1s + 回應 2s）→ Gateway 7s → timelimiter 15s。
           httpclient:
             # 建立 TCP 連線的最長時間（毫秒）；超時會被視為連線失敗。
             connect-timeout: 1000
@@ -161,4 +161,4 @@ resilience4j.circuitbreaker:
 resilience4j.timelimiter:
   configs:
     default:
-      timeoutDuration: 10s
+      timeoutDuration: 15s

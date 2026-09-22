@@ -313,7 +313,7 @@ springboot-microservices/
 |---|---|
 | [🔀 兩條服務發現路徑刻意並存](#-兩條服務發現路徑刻意並存) | 同一份程式對照 client-side 與 server-side 兩種負載平衡 |
 | [⚙️ 集中式設定與動態刷新](#️-集中式設定與動態刷新) | Git backend 讀的是 GitHub，不是磁碟 |
-| [🛡️ 由內到外的逾時鏈](#️-由內到外的逾時鏈) | Feign 3s → Gateway 7s → TimeLimiter 10s，順序不能亂 |
+| [🛡️ 由內到外的逾時鏈](#️-由內到外的逾時鏈) | Feign 3s → Gateway 7s → TimeLimiter 15s，順序不能亂 |
 | [📨 RabbitMQ 與 Kafka 雙 binder 並掛](#-rabbitmq-與-kafka-雙-binder-並掛) | Bus 固定走 Rabbit，業務事件兩條都走 |
 | [🔐 可一鍵關閉的 OAuth2 安全層](#-可一鍵關閉的-oauth2-安全層) | `auth` profile 切換兩份 SecurityConfig |
 | [🔭 三訊號觀測性與 correlation-id 貫穿](#-三訊號觀測性與-correlation-id-貫穿) | WebFlux 少一行設定，traceId 就永遠空白 |
@@ -397,17 +397,24 @@ accounts:
 逾時設定**由內到外遞增**，修改任一層都要一併檢查：
 
 ```
-Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  Resilience4j timelimiter 10s
+Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  Resilience4j timelimiter 15s
 ```
 
-| 機制 | 位置 | 設定 |
+> 這三個數字**不在同一次呼叫上疊加**：Feign 3s 管的是 Account → Loan／Card，Gateway 7s 與 TimeLimiter 15s 管的是 Gateway → Account。遞增的意義是「外層要留得比內層寬」，不是「一筆請求最多等 15 秒」。
+> 實際上只有 `/bank/account/**` 受 15s 天花板保護；`/bank/loan/**` 沒有 TimeLimiter，Retry 4 次各自受 7s 限制，理論最壞可能接近 29 秒。
+
+機制掛在**不同的 hop** 上，各自獨立統計、互不影響——同名機制出現兩次不代表疊加：
+
+| 機制 | 守哪一段呼叫 | 設定與行為 |
 |---|---|---|
-| Circuit Breaker | Account（Feign）、Gateway（account 路由） | 滑動視窗 5 次、最少 5 次、失敗率 50%、OPEN 10 秒、HALF_OPEN 放行 2 次 |
-| Retry | Account（Feign）、Gateway（loan 路由） | 最多 4 次（含首次）、100ms 起指數退避 ×2、單次上限 1s |
-| RateLimiter | Account 服務內 | 每 5 秒 1 次，記憶體計數，每個 instance 各自計算 |
-| RequestRateLimiter | Gateway（card 路由） | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429 |
-| TimeLimiter | Gateway | 10s，需大於 Gateway 的 HTTP timeout |
-| Fallback | Account `*Fallback` 類別、Gateway `/contactSupport` | 下游失敗時回傳 null 或聯絡資訊，不讓整體查詢失敗 |
+| Circuit Breaker<br/>`accountCircuitBreaker` | **Gateway → Account** | 滑動視窗 5 次、最少 5 次、失敗率 50%、OPEN 10 秒、HALF_OPEN 放行 2 次；跳閘後 `forward:/contactSupport` |
+| Circuit Breaker<br/>（Feign） | **Account → Loan／Card** | 參數同上但**獨立計數**（兩份設定各自複製，改一邊不影響另一邊）；跳閘後由 `*Fallback` 回傳 null，**Account 仍回 200** —— 因此下游壞掉不會讓上面那個 CB 跳閘 |
+| Retry | **Gateway → Loan** | 僅 GET、最多 4 次（含首次）、100 → 200 → 400ms 指數退避，單次上限 1s |
+| Retry<br/>（Feign） | **Account → Loan／Card** | `maxAttempts: 4`、100ms 起 ×2 退避、單次上限 1s；`ResourceNotFoundException` 與 `CustomerAlreadyExistsException` 不重試 |
+| RateLimiter | **Account 服務內** | 每 5 秒 1 次，記憶體計數，**每個 instance 各自計算**（開兩個副本，實際通過量就是兩倍） |
+| RequestRateLimiter | **Gateway → Card** | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429；計數在 Redis，多個 Gateway 副本共用額度 |
+| TimeLimiter | **Gateway → Account**（隨 CB 生效） | 15s，需大於 Gateway 的 HTTP timeout（7s）。**只在掛了 Circuit Breaker 的路由生效**，loan／card／k8s 三條路由沒有這層 |
+| Fallback | 兩處 | Account `*Fallback` 回 null（讓聚合查詢仍成功）；Gateway `/contactSupport` 回聯絡資訊 |
 
 **設計取捨：** Account 停用了 CircuitBreaker 的 Feign 執行緒池（`spring.cloud.circuitbreaker.resilience4j.disable-thread-pool=true`），目的是避免執行緒切換導致 MDC 內的 correlation-id 遺失；代價是 TimeLimiter 無法中斷阻塞中的同步 Feign，等待時間改由 Feign 的 connect/read timeout 把關。
 
