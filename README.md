@@ -150,7 +150,7 @@ flowchart TB
     ACC -->|開戶事件| RMQ --> MS
     ACC -->|開戶事件| KFK --> MS
     MS -->|完成回報| RMQ & KFK
-    RMQ & KFK -->|更新 communication_sw| ACC
+    RMQ & KFK -->|email/sms 已發送 → communication_sw| ACC
 
     PROM & LOKI & TEMPO --> GRAF
 
