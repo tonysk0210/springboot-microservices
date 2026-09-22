@@ -127,7 +127,7 @@ sequenceDiagram
 
 <br>
 
-**Headlamp — `default` namespace** — 八個 Deployment 全部 Available，`card` 與 `loan` 各 2 個副本，image 統一取自本機的 `anthonysk/<service>:0.0.1-SNAPSHOT`，另有一個 `spring-cloud-kubernetes-discoveryserver`。
+**Headlamp — `default` namespace** — 八個 Deployment 全部 Available，`card` 與 `loan` 各 2 個副本，image 統一取自本機的 `anthonysk/<service>:0.0.1-SNAPSHOT`。另有一個 `spring-cloud-kubernetes-discoveryserver` —— 它直接讀 Kubernetes API 產生服務清單，**服務不需要註冊就會被看見**（畫面上的 `configserver`、`messageservice` 沒出現在 Eureka 名冊，卻在它的清單裡）。它是 Eureka 的對照組：取代的是「註冊中心」這個元件，本身不轉送流量，只被 Gateway 的 `/k8s-service-discovery/apps` 端點查詢。
 
 ![Headlamp Kubernetes 工作負載](docs/screenshots/headlamp-k8s.png)
 
@@ -540,7 +540,7 @@ JPA 設為 `ddl-auto: validate`，**只驗證、不建立也不修改**。因此
 | Resilience4j | Circuit Breaker、Retry、RateLimiter、TimeLimiter |
 | Spring Cloud Stream | RabbitMQ 與 Kafka 雙 binder |
 | Spring Cloud Function | MessageService 的 `Function` 式訊息處理 |
-| Spring Cloud Kubernetes Discovery Server | K8s 環境下的服務發現（3.2.0） |
+| Spring Cloud Kubernetes Discovery Server | 讀 K8s API 產生服務清單，作為 Eureka 的對照組（3.2.0）；僅供查詢，不轉送業務流量 |
 
 ### 資料與中介軟體
 
@@ -659,7 +659,7 @@ docker compose -f compose.k8s-infra.yml --profile observability up -d
 .\helm\deploy-helm-in-order.ps1 -Namespace helm-test-2 -TimeoutSeconds 600
 ```
 
-微服務 Chart 位於 `helm/services/`（部署到 `helm-test`）；Alloy 與 Kubernetes Discovery Server 屬基礎設施，部署在 `default`。
+微服務 Chart 位於 `helm/services/`，Alloy 位於 `helm/observability/`。**全部（含 Alloy 與 Kubernetes Discovery Server）都部署到同一個 Namespace**，由 `-Namespace` 指定、預設 `helm-test` —— Discovery Server 必須與微服務同 Namespace，Gateway 才能用 `spring-cloud-kubernetes-discoveryserver.<namespace>.svc.cluster.local` 找到它。腳本會先移除殘留在 `default` 的舊 Release，避免兩份並存。
 
 ### 手動建置 Image
 
