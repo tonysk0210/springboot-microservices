@@ -48,7 +48,8 @@
 | `messageservice` | 9010 | Spring Cloud Function，email／sms 通知 |
 | `microservices-bom` | — | 純 BOM parent，不可部署 |
 
-> 七個服務**沒有 root aggregator POM**，各自帶 `pom.xml` 與 Maven Wrapper，必須進到各自目錄才能建置或執行。
+> `microservices-bom` 是共用的 **parent POM**（`dependencyManagement` + `pluginManagement`），各服務以 `<relativePath>` 繼承它。
+> 但它**不是 aggregator** —— 沒有 `<modules>`，根目錄也沒有 `pom.xml`，所以無法從任何一處一次建置七個服務，必須進到各自目錄執行 `mvnw`。
 
 > 本專案以學習與實驗為目的。部分設定（開放的 Actuator 端點、提交進 git 的 `.env`、`start-dev` 模式的 Keycloak）僅適用本機，**不可直接用於正式環境** — 完整清單見 [已知的刻意取捨](#已知的刻意取捨)。
 > 遇到問題？ → [疑難排解](#疑難排解)
@@ -508,7 +509,7 @@ JPA 設為 `ddl-auto: validate`，**只驗證、不建立也不修改**。因此
 | Spring Boot | 4.1.0 | `spring-boot-starter-parent` |
 | Spring Security | 7.1.0 | 由 Boot 託管；Gateway 作為 Resource Server 驗證 JWT |
 | Spring Cloud | 2025.1.2 | 由 `microservices-bom` 匯入 |
-| Maven Wrapper | 3.9.16 | 各模組自帶，**無 root aggregator POM**，每個服務獨立建置 |
+| Maven Wrapper | 3.9.16 | 各模組自帶；有共用 parent 但**無 aggregator**，每個服務獨立建置 |
 | Lombok | Boot 管理 | Java 23+ 需顯式宣告 `annotationProcessorPaths` |
 | springdoc-openapi | 3.1.0 | Swagger UI（webmvc / webflux 兩種） |
 
