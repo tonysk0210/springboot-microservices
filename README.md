@@ -415,7 +415,7 @@ Feign（connect 1s + read 2s ≈ 3s）  →  Gateway response-timeout 7s  →  R
 | RateLimiter<br/>（`@RateLimiter`） | **Account 內的測試端點** | 只掛在 `/api/test-rate-limiter`（`ResilienceTestController.java:72`）：每 5 秒 1 次，記憶體計數（詳見下方）。**業務 API 沒有套用服務內限流** |
 | RequestRateLimiter | **Gateway → Card** | Redis 令牌桶 `(1, 1, 1)`，依 `user` header 分桶，超量回 429；計數在 Redis，多個 Gateway 副本共用額度 |
 | TimeLimiter | **Gateway → Account**（隨 CB 生效） | 15s，需大於 Gateway 的 HTTP timeout（7s）。**只在掛了 Circuit Breaker 的路由生效**，loan／card／k8s 三條路由沒有這層 |
-| Fallback | 兩處 | Account `*Fallback` 回 null（讓聚合查詢仍成功）；Gateway `/contactSupport` 回聯絡資訊 |
+| Fallback | 兩處 | Account 的 `*Fallback` 讓回應裡的 `loanDto`／`cardDto` 變成 null，帳戶資料照常回傳、整體仍是 **200**；Gateway `/contactSupport` 回聯絡資訊 |
 
 #### Circuit Breaker 的狀態怎麼轉換
 
@@ -435,20 +435,6 @@ HALF_OPEN（只放行 2 個試探請求，第 3 個以後照樣擋掉）
    └─ 只要失敗 1 次（50% ≥ 50%）→ OPEN（再斷 10 秒，重來一輪）
 ```
 
-五個設定值的白話對照：
-
-| 設定 | 白話 |
-|---|---|
-| `slidingWindowSize: 5` | 只看**最近 5 次**呼叫，第 6 次進來就擠掉第 1 次（滾動的，不是每 5 次結算歸零） |
-| `minimumNumberOfCalls: 5` | 累積滿 5 次才開始判斷，避免剛啟動第一次失敗就跳閘 |
-| `failureRateThreshold: 50` | 失敗率**達到**（不是超過）50% 就跳閘 |
-| `waitDurationInOpenState: 10000` | 斷開後等 10 秒才做下一次試探 |
-| `permittedNumberOfCallsInHalfOpenState: 2` | 試探時只放 2 個請求過去當「偵察兵」，避免下游還沒好就被全部流量再壓垮 |
-
-視窗 5 搭配門檻 50%，實際條件就是「**最近 5 次裡失敗 3 次**」—— 失敗 2 次只有 40%，不會跳閘。而 HALF_OPEN 的 2 次試探因為門檻是「達到」50%，**失敗 1 次（剛好 50%）就足以打回 OPEN**，設計上偏保守。
-
-> 視窗只有 5 是**練習專案的刻意設定**，方便手動測出跳閘（連打 3 次失敗就看得到）。正式環境通常放大到 50～100，否則偶發的連續失敗就會誤跳閘，恢復時也只憑 2 次成功就全面放行，風險偏高。
-
 #### 兩種限流的差別
 
 專案裡有**兩套互不相干**的限流，常被混為一談。Account 那套是**固定週期發通行證**：
@@ -463,12 +449,6 @@ HALF_OPEN（只放行 2 個試探請求，第 3 個以後照樣擋掉）
   4.9s           ──→ 第 3 個請求，沒證        ❌ 立刻失敗
   5.0s   發 1 張 ──→ 第 4 個請求拿走          ✅
 ```
-
-| 設定 | 白話 |
-|---|---|
-| `limitForPeriod: 1` | 每個週期只發 **1 張**通行證 |
-| `limitRefreshPeriod: 5s` | **每 5 秒**重新發一輪；用不完不會累積到下一輪 |
-| `timeoutDuration: 0` | 沒證時**不排隊等**，立刻失敗 |
 
 | | Account 的 `@RateLimiter` | Gateway 的 `RequestRateLimiter` |
 |---|---|---|
