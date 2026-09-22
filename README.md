@@ -138,8 +138,10 @@ flowchart TB
     GW -->|lb:// 經 Eureka| ACC & LOAN & CARD
     GW -->|/k8s/** Service DNS| ACC
 
-    ACC -->|Feign| LOAN
-    ACC -->|Feign| CARD
+    ACC -->|Feign · lb:// 經 Eureka| LOAN
+    ACC -->|Feign · Service DNS| LOAN
+    ACC -->|Feign · lb:// 經 Eureka| CARD
+    ACC -->|Feign · Service DNS| CARD
     ACC & LOAN & CARD --> DB
 
     CS -->|clone| Git
