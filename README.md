@@ -116,7 +116,7 @@ sequenceDiagram
 
 ![Headlamp Pod 清單](docs/screenshots/headlamp-pod.png)
 
-**Gateway 路由表** — `http://localhost:8072/actuator/gateway/routes`。四條路由與各自的 filter 一次看清，也是 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)在執行期的樣子：三條 `/bank/**` 指向 `lb://ACCOUNT`／`lb://LOAN`／`lb://CARD`（Eureka），`/k8s/account/**` 則直接指向 `http://account:8080`（Service DNS），回應 header `X-Gateway-Discovery-Mode` 因此分別是 `eureka` 與 `service-dns`。每條路由的容錯機制也不同——account 掛 `accountCircuitBreaker` 並 fallback 到 `forward:/contactSupport`，loan 是 `Retry`（`retries=3`、僅 GET、`PT0.1S → PT1S` 指數退避 `factor=2`），card 則是 `RequestRateLimiter`。
+**Gateway 路由表** — `http://localhost:8072/actuator/gateway/routes`。四條路由與各自的 filter 一次看清，也是 [§3 兩條服務發現路徑](#-兩條服務發現路徑刻意並存)在執行期的樣子：三條 `/bank/**` 指向 `lb://ACCOUNT`／`lb://LOAN`／`lb://CARD`（Eureka），`/k8s/account/**` 則直接指向 `http://account:8080`（Service DNS）。兩條路徑最終打到**同一個 account 服務**、回應內容相同，所以 `RouteConfig.java` 在每條路由上各自 `addResponseHeader` 一個**人工標記**的 `X-Gateway-Discovery-Mode`（`eureka` / `service-dns`），讓呼叫端不用查設定就知道這次走的是哪套服務發現。這個值是寫死的字串、不由 `uri()` 推導，改路由時要記得一起改。每條路由的容錯機制也不同——account 掛 `accountCircuitBreaker` 並 fallback 到 `forward:/contactSupport`，loan 是 `Retry`（`retries=3`、僅 GET、`PT0.1S → PT1S` 指數退避 `factor=2`），card 則是 `RequestRateLimiter`。
 
 ![Gateway 路由清單](docs/screenshots/actuator.gateway.routes.png)
 
